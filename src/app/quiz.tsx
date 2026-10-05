@@ -1,6 +1,6 @@
 import Feather from '@expo/vector-icons/Feather';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -27,51 +27,48 @@ export default function QuizScreen() {
   const insets = useSafeAreaInsets();
   const { history, cards, settings, recordAnswer, resetKnowledgeCheck, readSinceQuiz } = useStore();
 
-  const [questions, setQuestions] = useState<Question[] | null>(null);
+  // Build the question set once; store updates during the quiz must not reshuffle it.
+  // Offline sets are ready immediately; only the AI path needs an async request.
+  const [plan] = useState(() => {
+    if (mode === 'review') return { questions: dueCards(cards).slice(0, 10).map((c) => c.question) };
+    if (mode === 'check') {
+      const recent = history.slice(0, Math.max(3, Math.min(readSinceQuiz || settings.quizEvery, 10)));
+      const qs = recent.flatMap((p) => localQuestionsForPost(p, history.filter((h) => h.id !== p.id)).slice(0, 1));
+      return { questions: shuffleInPlace(qs).slice(0, 6) };
+    }
+    const id = params.postId!;
+    const cached = postCache.get(id);
+    const post: ReadPost | undefined =
+      history.find((h) => h.id === id) ??
+      (cached && { id, title: cached.title, subreddit: cached.subreddit, selftext: cached.selftext, permalink: cached.permalink, readAt: Date.now() });
+    if (!post) return { questions: [] };
+    const others = history.filter((h) => h.id !== id);
+    if (settings.aiQuizzes && settings.anthropicKey) return { questions: null, aiPost: post, others };
+    return { questions: localQuestionsForPost(post, others) };
+  });
+
+  const [questions, setQuestions] = useState<Question[] | null>(plan.questions);
   const [notice, setNotice] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const [correct, setCorrect] = useState(0);
-  const built = useRef(false);
 
-  // Build the question set once; store updates during the quiz must not reshuffle it.
   useEffect(() => {
-    if (built.current) return;
-    built.current = true;
-
-    if (mode === 'review') {
-      setQuestions(dueCards(cards).slice(0, 10).map((c) => c.question));
-      return;
-    }
-
-    if (mode === 'check') {
-      const recent = history.slice(0, Math.max(3, Math.min(readSinceQuiz || settings.quizEvery, 10)));
-      const qs = recent.flatMap((p) => localQuestionsForPost(p, history.filter((h) => h.id !== p.id)).slice(0, 1));
-      setQuestions(shuffleInPlace(qs).slice(0, 6));
-      return;
-    }
-
-    const id = params.postId!;
-    const fromHistory = history.find((h) => h.id === id);
-    const cached = postCache.get(id);
-    const post: ReadPost | undefined =
-      fromHistory ?? (cached && { id, title: cached.title, subreddit: cached.subreddit, selftext: cached.selftext, permalink: cached.permalink, readAt: Date.now() });
-    if (!post) {
-      setQuestions([]);
-      return;
-    }
-    const others = history.filter((h) => h.id !== id);
-    if (settings.aiQuizzes && settings.anthropicKey) {
-      aiQuestionsForPost(settings.anthropicKey, post, commentsCache.get(id) ?? [])
-        .then((qs) => setQuestions(qs.length ? qs : localQuestionsForPost(post, others)))
-        .catch((e) => {
-          setNotice(`${e instanceof Error ? e.message : 'AI questions unavailable.'} Using offline questions instead.`);
-          setQuestions(localQuestionsForPost(post, others));
-        });
-    } else {
-      setQuestions(localQuestionsForPost(post, others));
-    }
-  }, [mode, params.postId, history, cards, settings, readSinceQuiz]);
+    if (!plan.aiPost) return;
+    const post = plan.aiPost;
+    const others = plan.others ?? [];
+    let cancelled = false;
+    aiQuestionsForPost(settings.anthropicKey, post, commentsCache.get(post.id) ?? [])
+      .then((qs) => !cancelled && setQuestions(qs.length ? qs : localQuestionsForPost(post, others)))
+      .catch((e) => {
+        if (cancelled) return;
+        setNotice(`${e instanceof Error ? e.message : 'AI questions unavailable.'} Using offline questions instead.`);
+        setQuestions(localQuestionsForPost(post, others));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [plan, settings.anthropicKey]);
 
   const done = questions != null && index >= questions.length && questions.length > 0;
 

@@ -9,7 +9,7 @@ import { Badge, IconButton, Pill, SectionHeader, StatTile } from '@/components/u
 import { greeting } from '@/lib/format';
 import { accuracy, totals } from '@/lib/learning';
 import { dueCards } from '@/lib/quiz';
-import { fetchFeed, Post, SortMode } from '@/lib/reddit';
+import { fetchFeed, Listing, Post, SortMode } from '@/lib/reddit';
 import { feedFilterOptions, postCache, useStore } from '@/lib/store';
 import { colors, radius, spacing, type } from '@/lib/theme';
 
@@ -31,51 +31,70 @@ export default function FeedScreen() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [after, setAfter] = useState<string | null>(null);
   const [hidden, setHidden] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Which feed (subreddits + sort + filter) the current posts belong to.
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const requestId = useRef(0);
 
   const subs = useMemo(() => (selected ? [selected] : settings.subreddits), [selected, settings.subreddits]);
   const filterOpts = useMemo(() => feedFilterOptions(settings), [settings]);
+  const feedKey = useMemo(() => JSON.stringify({ subs, sort, filterOpts }), [subs, sort, filterOpts]);
+  const current = loadedKey === feedKey;
+  const loading = !current || busy;
 
-  const load = useCallback(
-    async (mode: 'reset' | 'more' | 'refresh') => {
-      if (mode === 'more' && (!after || loading)) return;
-      const id = ++requestId.current;
-      if (mode === 'refresh') setRefreshing(true);
-      else setLoading(true);
-      setError(null);
-      try {
-        const res = await fetchFeed({ subreddits: subs, sort, after: mode === 'more' ? after : null, ...filterOpts });
-        if (id !== requestId.current) return;
-        res.posts.forEach((p) => postCache.set(p.id, p));
-        setPosts((prev) => {
-          if (mode !== 'more') return res.posts;
-          const seen = new Set(prev.map((p) => p.id));
-          return [...prev, ...res.posts.filter((p) => !seen.has(p.id))];
-        });
-        setHidden((h) => (mode === 'more' ? h + res.hiddenCount : res.hiddenCount));
-        setAfter(res.after);
-      } catch (e) {
-        if (id === requestId.current) setError(e instanceof Error ? e.message : 'Something went wrong.');
-      } finally {
-        if (id === requestId.current) {
-          setLoading(false);
-          setRefreshing(false);
-        }
-      }
-    },
-    [after, loading, subs, sort, filterOpts],
-  );
+  const applyPage = (res: Listing, mode: 'reset' | 'more') => {
+    res.posts.forEach((p) => postCache.set(p.id, p));
+    setPosts((prev) => {
+      if (mode !== 'more') return res.posts;
+      const seen = new Set(prev.map((p) => p.id));
+      return [...prev, ...res.posts.filter((p) => !seen.has(p.id))];
+    });
+    setHidden((h) => (mode === 'more' ? h + res.hiddenCount : res.hiddenCount));
+    setAfter(res.after);
+    setError(null);
+  };
 
+  const settle = (key: string) => {
+    setLoadedKey(key);
+    setBusy(false);
+    setRefreshing(false);
+  };
+
+  const fetchPage = (mode: 'reset' | 'more') => {
+    const id = ++requestId.current;
+    const key = feedKey;
+    fetchFeed({ subreddits: subs, sort, after: mode === 'more' ? after : null, ...filterOpts })
+      .then((res) => id === requestId.current && applyPage(res, mode))
+      .catch((e) => id === requestId.current && setError(e instanceof Error ? e.message : 'Something went wrong.'))
+      .finally(() => id === requestId.current && settle(key));
+  };
+
+  // Load the first page whenever the feed (subreddits, sort, filter) changes.
   useEffect(() => {
     if (!store.ready) return;
-    setPosts([]);
-    setAfter(null);
-    load('reset');
+    const id = ++requestId.current;
+    fetchFeed({ subreddits: subs, sort, after: null, ...filterOpts })
+      .then((res) => id === requestId.current && applyPage(res, 'reset'))
+      .catch((e) => id === requestId.current && setError(e instanceof Error ? e.message : 'Something went wrong.'))
+      .finally(() => id === requestId.current && settle(feedKey));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.ready, subs, sort, filterOpts]);
+  }, [store.ready, feedKey]);
+
+  const loadMore = () => {
+    if (!after || loading) return;
+    setBusy(true);
+    fetchPage('more');
+  };
+  const refresh = () => {
+    setRefreshing(true);
+    fetchPage('reset');
+  };
+  const retry = () => {
+    setBusy(true);
+    fetchPage('reset');
+  };
 
   const readIds = useMemo(() => new Set(history.map((h) => h.id)), [history]);
   const notedIds = useMemo(() => new Set(notes.map((n) => n.postId)), [notes]);
@@ -115,7 +134,7 @@ export default function FeedScreen() {
       <View style={styles.panelTop}>
         <View style={styles.titleRow}>
           <View style={{ flex: 1, gap: spacing.sm + 2 }}>
-            <Text style={type.title}>Today's learning</Text>
+            <Text style={type.title}>Today’s learning</Text>
             {checkReady ? (
               <Badge label="Knowledge check ready" />
             ) : due > 0 ? (
@@ -153,7 +172,7 @@ export default function FeedScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.checkTitle}>Knowledge check</Text>
               <Text style={styles.checkBody}>
-                You've read {readSinceQuiz} posts. Lock them in with a quick quiz.
+                You’ve read {readSinceQuiz} posts. Lock them in with a quick quiz.
               </Text>
             </View>
             <Feather name="arrow-right" size={20} color="#fff" />
@@ -175,11 +194,11 @@ export default function FeedScreen() {
 
         <SectionHeader title="Your feed" action={hidden > 0 ? `${hidden} hidden` : undefined} />
 
-        {error ? (
+        {error && current ? (
           <View style={styles.error}>
             <Feather name="wifi-off" size={18} color={colors.danger} />
             <Text style={styles.errorText}>{error}</Text>
-            <Pressable onPress={() => load('reset')} hitSlop={8}>
+            <Pressable onPress={retry} hitSlop={8}>
               <Text style={styles.retry}>Retry</Text>
             </Pressable>
           </View>
@@ -192,7 +211,7 @@ export default function FeedScreen() {
     <FlatList
       style={{ backgroundColor: colors.canvas }}
       contentContainerStyle={{ flexGrow: 1 }}
-      data={posts}
+      data={current ? posts : []}
       keyExtractor={(p) => p.id}
       ListHeaderComponent={header}
       renderItem={({ item }) => (
@@ -220,9 +239,9 @@ export default function FeedScreen() {
         </View>
       }
       ListFooterComponentStyle={{ flexGrow: 1 }}
-      onEndReached={() => load('more')}
+      onEndReached={loadMore}
       onEndReachedThreshold={0.6}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.ink} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.ink} />}
     />
   );
 }

@@ -17,6 +17,11 @@ A calm, family-friendly Reddit reader that helps you **remember what you read**.
 
 ## Download
 
+### Web (any phone or computer)
+Open **https://vladk-iii.github.io/clean-reddit/**. On a phone, use *Add to Home Screen* to get an app-like icon.
+
+The site is redeployed every time `main` changes. **One-time setup:** in the repo, go to *Settings → Pages → Build and deployment → Source* and choose **GitHub Actions**.
+
 ### Android
 1. Open the [Releases](../../releases) page and download the latest `clean-reddit-x.y.z.apk`.
 2. Open the file on your phone. Allow "install unknown apps" for your browser or file manager if Android asks.
@@ -78,6 +83,7 @@ npm install
 npm start          # then press "a" for Android, or scan the QR code with Expo Go
 npm test           # unit tests: content filter, quiz generator, stats
 npm run typecheck
+npm run lint
 ```
 
 Built with Expo SDK 57, React Native and Expo Router.

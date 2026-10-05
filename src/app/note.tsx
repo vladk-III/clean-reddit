@@ -68,7 +68,7 @@ export default function NoteScreen() {
         {afterReading ? (
           <View style={styles.prompt}>
             <Feather name="feather" size={18} color={colors.accent} />
-            <Text style={styles.promptText}>Before you move on: what's worth remembering or doing from this post?</Text>
+            <Text style={styles.promptText}>Before you move on: what’s worth remembering or doing from this post?</Text>
           </View>
         ) : null}
 

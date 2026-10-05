@@ -61,7 +61,6 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 
 function confirm(title: string, message: string, onYes: () => void) {
   if (Platform.OS === 'web') {
-    // eslint-disable-next-line no-alert
     if (window.confirm(`${title}\n\n${message}`)) onYes();
     return;
   }
