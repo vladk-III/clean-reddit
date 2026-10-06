@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 
 import { filterComments, filterPosts, isSubredditAllowed } from './filter';
+import { entryToComment, entryToPost, isAtom, parseAtom } from './rss';
 
 export type Post = {
   id: string;
@@ -13,6 +14,8 @@ export type Post = {
   permalink: string;
   score: number;
   numComments: number;
+  /** False when the post came from an RSS feed, which has no score or comment count. */
+  hasStats: boolean;
   createdUtc: number;
   isSelf: boolean;
   isVideo: boolean;
@@ -139,27 +142,59 @@ async function request(path: string, params: Record<string, string>, auth?: Redd
         : 'Could not reach Reddit. Check your internet connection.',
     );
   }
-  if (res.status === 429) throw new RedditError('Reddit is rate limiting requests. Try again in a minute.', 429);
-  if (res.status === 403) {
-    throw new RedditError(
-      'Reddit blocked this request. Adding your own Reddit client ID in Settings usually fixes this.',
-      403,
-    );
+  checkStatus(res);
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new RedditError('Reddit sent back a web page instead of data. Try again in a minute.');
   }
+}
+
+function checkStatus(res: Response) {
+  if (res.status === 429) throw new RedditError('Reddit is rate limiting requests. Try again in a minute.', 429);
+  if (res.status === 403) throw new RedditError('Reddit blocked this request. Try again in a few minutes.', 403);
+  if (res.status === 404) throw new RedditError('Not found on Reddit.', 404);
   if (!res.ok) throw new RedditError(`Reddit returned an error (${res.status}).`, res.status);
-  return res.json();
+}
+
+/** Uses JSON (with a client ID or the web relay) or, by default, the public Atom feeds. */
+function readsFeeds(auth?: RedditAuth) {
+  return Platform.OS !== 'web' && !auth?.clientId;
+}
+
+async function requestFeed(path: string, params: Record<string, string>) {
+  const query = new URLSearchParams(params).toString();
+  let res: Response;
+  try {
+    res = await fetch(`${PUBLIC_BASE}${path}.rss${query ? `?${query}` : ''}`, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/atom+xml' },
+    });
+  } catch {
+    throw new RedditError('Could not reach Reddit. Check your internet connection.');
+  }
+  checkStatus(res);
+  const text = await res.text();
+  if (!isAtom(text)) throw new RedditError('Reddit sent back a web page instead of a feed. Try again in a minute.');
+  return parseAtom(text);
 }
 
 // ---------- Normalisation ----------
 
 function decodeEntities(s: string) {
-  return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
 }
 
 export function normalizePost(d: any): Post {
   const preview = d.preview?.images?.[0]?.resolutions;
   // Pick a preview around 640px wide: sharp enough on phones, still light.
-  const res = Array.isArray(preview) && preview.length ? (preview.find((r: any) => r.width >= 640) ?? preview[preview.length - 1]) : null;
+  const res =
+    Array.isArray(preview) && preview.length ? (preview.find((r: any) => r.width >= 640) ?? preview[preview.length - 1]) : null;
   return {
     id: String(d.id),
     title: decodeEntities(String(d.title ?? '')),
@@ -171,6 +206,7 @@ export function normalizePost(d: any): Post {
     permalink: String(d.permalink ?? ''),
     score: Number(d.score ?? 0),
     numComments: Number(d.num_comments ?? 0),
+    hasStats: true,
     createdUtc: Number(d.created_utc ?? 0),
     isSelf: Boolean(d.is_self),
     isVideo: Boolean(d.is_video),
@@ -216,16 +252,35 @@ export async function fetchFeed(opts: FeedOptions): Promise<Listing> {
   const params: Record<string, string> = { limit: '25' };
   if (opts.after) params.after = opts.after;
   if (opts.sort === 'top') params.t = 'week';
+  const filterOpts = { strict: opts.strict ?? true, extraWords: opts.extraBlockedWords ?? [] };
+  if (readsFeeds(opts.auth)) {
+    const entries = await requestFeed(`/r/${subs.join('+')}/${opts.sort}/`, params);
+    const raw = entries.filter((e) => e.id.startsWith('t3_')).map(entryToPost);
+    const posts = filterPosts(raw, filterOpts);
+    const last = entries[entries.length - 1];
+    return { posts, after: entries.length >= 25 && last ? last.id : null, hiddenCount: raw.length - posts.length };
+  }
   const json = await request(`/r/${subs.join('+')}/${opts.sort}`, params, opts.auth);
   const raw: Post[] = (json?.data?.children ?? []).filter((c: any) => c.kind === 't3').map((c: any) => normalizePost(c.data));
-  const posts = filterPosts(raw, { strict: opts.strict ?? true, extraWords: opts.extraBlockedWords ?? [] });
+  const posts = filterPosts(raw, filterOpts);
   return { posts, after: json?.data?.after ?? null, hiddenCount: raw.length - posts.length };
 }
 
 export async function fetchPost(
   id: string,
-  opts: { auth?: RedditAuth; strict?: boolean; extraBlockedWords?: string[] } = {},
+  opts: { auth?: RedditAuth; strict?: boolean; extraBlockedWords?: string[]; permalink?: string } = {},
 ): Promise<{ post: Post | null; comments: Comment[] }> {
+  if (readsFeeds(opts.auth)) {
+    const path = opts.permalink ? opts.permalink.replace(/\/?$/, '/') : `/comments/${id}/`;
+    const entries = await requestFeed(path, { limit: '60' });
+    const postEntry = entries.find((e) => e.id === `t3_${id}`) ?? entries.find((e) => e.id.startsWith('t3_'));
+    if (!postEntry) return { post: null, comments: [] };
+    const post = entryToPost(postEntry);
+    const filterOpts = { strict: opts.strict ?? true, extraWords: opts.extraBlockedWords ?? [] };
+    if (filterPosts([post], filterOpts).length === 0) return { post: null, comments: [] };
+    const comments = filterComments(entries.filter((e) => e.id.startsWith('t1_')).map(entryToComment), filterOpts);
+    return { post, comments };
+  }
   const json = await request(`/comments/${id}`, { limit: '60', depth: '3', sort: 'top' }, opts.auth);
   const postData = json?.[0]?.data?.children?.[0]?.data;
   if (!postData) return { post: null, comments: [] };
@@ -242,12 +297,22 @@ export async function checkSubreddit(name: string, auth?: RedditAuth): Promise<{
   if (!/^[A-Za-z0-9_]{2,21}$/.test(clean)) return { ok: false, reason: 'That is not a valid subreddit name.' };
   if (!isSubredditAllowed(clean)) return { ok: false, reason: 'This subreddit is blocked by the content filter.' };
   try {
+    if (readsFeeds(auth)) {
+      // Reddit hides adult and quarantined communities from logged-out visitors,
+      // so if the public feed doesn't load we don't add it.
+      const entries = await requestFeed(`/r/${clean}/hot/`, { limit: '5' });
+      if (entries.length === 0) return { ok: false, reason: 'Subreddit not found or empty.' };
+      return { ok: true };
+    }
     const json = await request(`/r/${clean}/about`, {}, auth);
     const d = json?.data;
     if (!d || json?.kind !== 't5') return { ok: false, reason: 'Subreddit not found.' };
     if (d.over18 || d.quarantine) return { ok: false, reason: 'This subreddit is marked as adult content.' };
     return { ok: true };
   } catch (e) {
+    if (e instanceof RedditError && (e.status === 403 || e.status === 404 || !e.status)) {
+      return { ok: false, reason: 'Couldn’t confirm this community is public and family-friendly, so it wasn’t added.' };
+    }
     return { ok: false, reason: e instanceof Error ? e.message : 'Could not reach Reddit.' };
   }
 }

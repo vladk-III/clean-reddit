@@ -16,7 +16,7 @@ function CommentItem({ comment }: { comment: Comment }) {
     <View style={[styles.comment, comment.depth > 0 && styles.reply]}>
       <View style={styles.commentMeta}>
         <Text style={styles.commentAuthor}>{comment.author}</Text>
-        <Text style={type.caption}>· {compact(comment.score)} pts</Text>
+        {comment.score ? <Text style={type.caption}>· {compact(comment.score)} pts</Text> : null}
       </View>
       <Text style={styles.commentBody}>{plainText(comment.body)}</Text>
       {comment.replies.slice(0, 2).map((r) => (
@@ -31,7 +31,7 @@ export default function PostScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { settings, notes, markRead } = useStore();
+  const { settings, notes, history, markRead } = useStore();
 
   const [post, setPost] = useState<Post | null>(postCache.get(id) ?? null);
   const [comments, setComments] = useState<Comment[]>(commentsCache.get(id) ?? []);
@@ -44,7 +44,11 @@ export default function PostScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchPost(id, feedFilterOptions(settings))
+    const permalink =
+      postCache.get(id)?.permalink ??
+      history.find((h) => h.id === id)?.permalink ??
+      notes.find((n) => n.postId === id)?.permalink;
+    fetchPost(id, { ...feedFilterOptions(settings), permalink: permalink || undefined })
       .then((res) => {
         if (cancelled) return;
         if (!res.post) {
@@ -108,16 +112,18 @@ export default function PostScreen() {
               u/{post.author} · {timeAgo(post.createdUtc)} ago{post.flair ? ` · ${post.flair}` : ''}
             </Text>
             <Text style={styles.title}>{post.title}</Text>
-            <View style={styles.stats}>
-              <View style={styles.statChip}>
-                <Feather name="arrow-up" size={14} color={colors.inkSoft} />
-                <Text style={styles.statText}>{compact(post.score)}</Text>
+            {post.hasStats ? (
+              <View style={styles.stats}>
+                <View style={styles.statChip}>
+                  <Feather name="arrow-up" size={14} color={colors.inkSoft} />
+                  <Text style={styles.statText}>{compact(post.score)}</Text>
+                </View>
+                <View style={styles.statChip}>
+                  <Feather name="message-circle" size={14} color={colors.inkSoft} />
+                  <Text style={styles.statText}>{compact(post.numComments)}</Text>
+                </View>
               </View>
-              <View style={styles.statChip}>
-                <Feather name="message-circle" size={14} color={colors.inkSoft} />
-                <Text style={styles.statText}>{compact(post.numComments)}</Text>
-              </View>
-            </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -238,7 +244,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   comment: { paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, gap: 4 },
-  reply: { marginLeft: spacing.md, paddingLeft: spacing.md, borderTopWidth: 0, borderLeftWidth: 2, borderLeftColor: colors.border },
+  reply: {
+    marginLeft: spacing.md,
+    paddingLeft: spacing.md,
+    borderTopWidth: 0,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.border,
+  },
   commentMeta: { flexDirection: 'row', gap: 6, alignItems: 'center' },
   commentAuthor: { fontSize: 14, fontWeight: '600', color: colors.ink },
   commentBody: { fontSize: 15, color: colors.inkSoft, lineHeight: 22 },

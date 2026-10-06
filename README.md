@@ -43,8 +43,8 @@ Apple doesn't allow installing apps from GitHub. You have two options:
 ### Clean content
 The filter has several layers, from most to least reliable:
 
-1. **Reddit's own flags.** Reddit marks some posts as NSFW (over 18) and some communities as quarantined. Those are always removed.
-2. **Blocked communities and links.** Adult subreddits and adult websites are blocked. When you add a subreddit, the app asks Reddit whether it's marked as adult, and refuses it if so.
+1. **Reddit's own gating.** The app reads Reddit's public feeds, the same ones a logged-out visitor sees, so communities that Reddit marks adult or quarantined don't load. When the app gets full post data instead (with a Reddit client ID), posts flagged NSFW are also removed. The public feeds don't include that per-post flag, so in feed mode the layers below do that job.
+2. **Blocked communities and links.** Adult subreddits and adult websites are blocked. When you add a subreddit, the app checks its name against the block list and only adds it if Reddit serves its public feed to logged-out visitors.
 3. **Keyword filter.** Explicit words are checked in post titles, post text, flair and comments. Strict mode is on by default and also catches suggestive posts (swimwear, "rate me", dating and so on).
 4. **Your own words.** You can add more blocked words, and turn on **Text only** to hide every image.
 

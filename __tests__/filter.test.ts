@@ -12,6 +12,7 @@ const base: Post = {
   permalink: '/r/todayilearned/comments/a1/',
   score: 100,
   numComments: 10,
+  hasStats: true,
   createdUtc: 0,
   isSelf: false,
   isVideo: false,

@@ -59,14 +59,23 @@ function PostCardImpl({ post, read, hasNote, hideImages, onPress, onNote }: Prop
       ) : null}
 
       <View style={styles.footer}>
-        <View style={styles.stat}>
-          <Feather name="arrow-up" size={16} color={colors.muted} />
-          <Text style={styles.statText}>{compact(post.score)}</Text>
-        </View>
-        <View style={styles.stat}>
-          <Feather name="message-circle" size={16} color={colors.muted} />
-          <Text style={styles.statText}>{compact(post.numComments)}</Text>
-        </View>
+        {post.hasStats ? (
+          <>
+            <View style={styles.stat}>
+              <Feather name="arrow-up" size={16} color={colors.muted} />
+              <Text style={styles.statText}>{compact(post.score)}</Text>
+            </View>
+            <View style={styles.stat}>
+              <Feather name="message-circle" size={16} color={colors.muted} />
+              <Text style={styles.statText}>{compact(post.numComments)}</Text>
+            </View>
+          </>
+        ) : (
+          <View style={styles.stat}>
+            <Feather name="message-circle" size={16} color={colors.muted} />
+            <Text style={styles.statText}>Discussion</Text>
+          </View>
+        )}
         <View style={{ flex: 1 }} />
         <Pressable
           onPress={() => onNote(post)}

@@ -106,7 +106,7 @@ export default function SettingsScreen() {
 
       <Section
         title="Clean content"
-        footer="Posts Reddit marks NSFW, quarantined communities and adult subreddits are always removed, and adult subreddits can't be added. Keyword filtering is a safety net and can occasionally miss or over-block.">
+        footer="Adult and quarantined communities don’t load and can’t be added, and adult words, sites and communities are always filtered. Keyword filtering is a safety net and can occasionally miss or over-block.">
         <Row icon="shield" title="Adult content" subtitle="Always hidden" right={<Feather name="lock" size={18} color={colors.muted} />} />
         <Row
           icon="filter"
