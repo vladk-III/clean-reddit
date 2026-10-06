@@ -6,10 +6,10 @@
  * the read-only endpoints the app uses and adds the CORS headers.
  *
  * Settings (Worker → Settings → Variables and Secrets):
- *   REDDIT_CLIENT_ID  (recommended) client ID of a Reddit "installed app" from
- *                     reddit.com/prefs/apps. Reddit often blocks anonymous
- *                     requests from cloud servers; with this set the worker uses
- *                     Reddit's official API instead.
+ *   REDDIT_CLIENT_ID  (optional) client ID of an existing Reddit "installed app".
+ *                     Reddit no longer lets people create new ones. With it set,
+ *                     the worker uses Reddit's official API; without it, it reads
+ *                     the public .json pages anonymously.
  *   ALLOWED_ORIGIN    (optional) e.g. https://your-name.github.io — only that
  *                     site may use the worker. Defaults to any site.
  *

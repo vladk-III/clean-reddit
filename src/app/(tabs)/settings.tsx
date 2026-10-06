@@ -1,7 +1,7 @@
 import Feather from '@expo/vector-icons/Feather';
 import { useRouter } from 'expo-router';
 import { ReactNode, useState } from 'react';
-import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconName, Pill } from '@/components/ui';
@@ -214,7 +214,7 @@ export default function SettingsScreen() {
       ) : (
         <Section
           title="Reddit connection"
-          footer="Optional. If posts fail to load, create a free “installed app” at reddit.com/prefs/apps and paste its client ID here. No Reddit login is needed.">
+          footer="Optional, and only if you already have one: the client ID of a Reddit “installed app”. Reddit no longer lets people create new ones. No Reddit login is needed.">
           <View style={styles.block}>
             <TextInput
               style={styles.input}
@@ -225,9 +225,6 @@ export default function SettingsScreen() {
               autoCapitalize="none"
               autoCorrect={false}
             />
-            <Pressable onPress={() => Linking.openURL('https://www.reddit.com/prefs/apps')}>
-              <Text style={styles.link}>Open reddit.com/prefs/apps</Text>
-            </Pressable>
           </View>
         </Section>
       )}

@@ -27,7 +27,7 @@ Reddit blocks websites from loading its posts directly. (The phone app isn't aff
 
 1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com).
 2. Go to **Workers & Pages → Create application** and import this GitHub repo. Name the worker `clean-reddit` to match [`wrangler.jsonc`](wrangler.jsonc). Cloudflare redeploys the relay on every push to `main`.
-3. Under the worker's **Settings → Variables and Secrets**, add `REDDIT_CLIENT_ID` as a *Secret*. To get one, create an **installed app** at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) (you can use any redirect URI, e.g. `http://localhost`) and paste the short ID shown under its name. Reddit often blocks anonymous requests from cloud servers, so this is strongly recommended.
+3. *(Optional)* If you already have a Reddit API client ID, add it under the worker's **Settings → Variables and Secrets** as a *Secret* named `REDDIT_CLIENT_ID`. Reddit no longer lets people create new API apps at reddit.com/prefs/apps, so most people will skip this step. Without it, the relay reads Reddit's public pages anonymously.
 4. The website is built to use `https://clean-reddit.vk31999.workers.dev`. If your worker has a different URL, add a GitHub repo variable named `REDDIT_PROXY_URL` (**Settings → Secrets and variables → Actions → Variables**) and re-run **Actions → Deploy web app to GitHub Pages**.
 
 The relay only accepts requests from `https://vladk-iii.github.io`. To change that, edit `ALLOWED_ORIGIN` in `wrangler.jsonc`.
@@ -81,12 +81,7 @@ The default feed is made of learning-focused communities: TIL, ELI5, AskScience,
 There are no accounts and no analytics. Notes, reading history, quiz cards and settings are stored only on your device. The app talks only to `reddit.com` (the website goes through your own relay), plus `api.anthropic.com` if you turn on AI questions.
 
 ## If posts don't load in the phone app
-Reddit sometimes blocks anonymous apps. (On the website, see *Website setup* above instead.) To fix it:
-1. Go to [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) and create an app of type **installed app**. You can use any redirect URI, for example `http://localhost`.
-2. Copy its client ID (the short string under the app name).
-3. In the app, open **Settings → Reddit connection** and paste it.
-
-You don't need to log in to Reddit. The app uses application-only access.
+Reddit sometimes rate-limits anonymous apps. Wait a minute and pull to refresh. If you already have a Reddit API client ID (type *installed app*), you can paste it in **Settings → Reddit connection**. Reddit no longer lets people create new ones, so this is only for people who have one already.
 
 ## Development
 
