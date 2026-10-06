@@ -3,7 +3,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 
 import type { Card, Question, ReadPost } from './quiz';
 import { newCard, reviewCard } from './quiz';
-import type { Comment, Post } from './reddit';
+import { onSessionExpired, type Comment, type Post } from './reddit';
 
 export type Settings = {
   displayName: string;
@@ -21,6 +21,11 @@ export type Settings = {
   redditClientId: string;
   /** Web only: overrides the relay URL built into the site. */
   redditProxy: string;
+  /** Signed in through the in-app Reddit login (Android). */
+  redditSession: boolean;
+  redditUser: string;
+  /** The last sign-in stopped working; Settings asks to sign in again. */
+  redditSessionExpired: boolean;
 };
 
 export type Note = {
@@ -64,6 +69,9 @@ export const DEFAULT_SETTINGS: Settings = {
   anthropicKey: '',
   redditClientId: '',
   redditProxy: '',
+  redditSession: false,
+  redditUser: '',
+  redditSessionExpired: false,
 };
 
 type PersistedState = {
@@ -153,6 +161,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     dirty.current.clear();
     AsyncStorage.multiSet(keys.map((k) => [KEYS[k], JSON.stringify(state[k])])).catch(() => {});
   }, [state, ready]);
+
+  // If the Reddit sign-in stops working, switch back to logged-out mode and say so in Settings.
+  useEffect(() => {
+    onSessionExpired(() => {
+      dirty.current.add('settings');
+      setState((s) =>
+        s.settings.redditSession ? { ...s, settings: { ...s.settings, redditSession: false, redditSessionExpired: true } } : s,
+      );
+    });
+    return () => onSessionExpired(null);
+  }, []);
 
   const update = useCallback(<K extends keyof PersistedState>(key: K, fn: (prev: PersistedState[K]) => PersistedState[K]) => {
     dirty.current.add(key);
@@ -244,11 +263,15 @@ export function useStore() {
 }
 
 export function feedFilterOptions(
-  settings: Pick<Settings, 'strictFilter' | 'blockedWords' | 'redditClientId' | 'redditProxy'>,
+  settings: Pick<Settings, 'strictFilter' | 'blockedWords' | 'redditClientId' | 'redditProxy' | 'redditSession'>,
 ) {
   return {
     strict: settings.strictFilter,
     extraBlockedWords: settings.blockedWords,
-    auth: { clientId: settings.redditClientId || undefined, proxyUrl: settings.redditProxy || undefined },
+    auth: {
+      clientId: settings.redditClientId || undefined,
+      proxyUrl: settings.redditProxy || undefined,
+      session: settings.redditSession || undefined,
+    },
   };
 }

@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 
-import { filterComments, filterPosts, isSubredditAllowed } from './filter';
+import { FilterOptions, filterComments, filterPosts, isSubredditAllowed } from './filter';
 import { AtomEntry, entryToComment, entryToPost, isAtom, parseAtom } from './rss';
 
 export type Post = {
@@ -46,6 +46,8 @@ export type RedditAuth = {
   clientId?: string;
   /** Web only: URL of the relay in proxy/reddit-proxy.js. */
   proxyUrl?: string;
+  /** Signed in through the in-app Reddit login; requests carry its cookies. */
+  session?: boolean;
 };
 
 /** Relay baked into the web build (GitHub repo variable REDDIT_PROXY_URL). */
@@ -165,14 +167,15 @@ function readsFeeds(auth?: RedditAuth) {
   return Platform.OS !== 'web' && !auth?.clientId;
 }
 
-// ---------- Feed requests: cache + pacing ----------
-// Reddit allows logged-out apps roughly 10 requests a minute. Reuse recent
-// responses, pace requests under that budget, and when Reddit still says
-// "slow down", keep showing what we already have.
+// ---------- Requests: cache + pacing ----------
+// Reddit allows logged-out apps roughly 10 requests a minute (signed-in use
+// gets more). Reuse recent responses, pace requests under that budget, and
+// when Reddit still says "slow down", keep showing what we already have.
 
-const FRESH_MS = 5 * 60_000; // reuse a feed for 5 minutes
+const FRESH_MS = 5 * 60_000; // reuse a response for 5 minutes
 const STALE_MS = 24 * 60 * 60_000; // fall back to older copies while rate limited
-const BUDGET = 9; // requests per rolling minute
+const BUDGET_LOGGED_OUT = 9; // requests per rolling minute
+const BUDGET_SIGNED_IN = 30;
 const MAX_WAIT_MS = 8_000; // wait this long for budget before giving up
 
 export class RateLimitError extends RedditError {
@@ -181,22 +184,35 @@ export class RateLimitError extends RedditError {
   }
 }
 
-const feedCache = new Map<string, { at: number; entries: AtomEntry[] }>();
-const inflight = new Map<string, Promise<AtomEntry[]>>();
+/** The in-app Reddit sign-in stopped working (signed out elsewhere, expired…). */
+export class SessionExpiredError extends RedditError {
+  constructor() {
+    super('Your Reddit sign-in has expired. Sign in again in Settings.', 401);
+  }
+}
+
+const responseCache = new Map<string, { at: number; data: unknown }>();
+const inflight = new Map<string, Promise<unknown>>();
 let recentRequests: number[] = [];
 let cooldownUntil = 0;
+let sessionExpiredListener: (() => void) | null = null;
 
-/** Test helper. */
+/** Called when signed-in requests stop working, so the app can show it in Settings. */
+export function onSessionExpired(listener: (() => void) | null) {
+  sessionExpiredListener = listener;
+}
+
+/** Clears cached responses and pacing state (sign in/out, tests). */
 export function resetFeedState() {
-  feedCache.clear();
+  responseCache.clear();
   inflight.clear();
   recentRequests = [];
   cooldownUntil = 0;
 }
 
-function budgetWaitMs(now: number) {
+function budgetWaitMs(now: number, budget: number) {
   recentRequests = recentRequests.filter((t) => now - t < 60_000);
-  return recentRequests.length < BUDGET ? 0 : recentRequests[0] + 60_000 - now;
+  return recentRequests.length < budget ? 0 : recentRequests[0] + 60_000 - now;
 }
 
 function retryAfterSec(res: Response) {
@@ -204,24 +220,25 @@ function retryAfterSec(res: Response) {
   return Number.isFinite(header) && header > 0 ? Math.min(Math.ceil(header), 600) : 60;
 }
 
-async function requestFeed(path: string, params: Record<string, string>, opts: { fresh?: boolean } = {}): Promise<AtomEntry[]> {
-  const query = new URLSearchParams(params).toString();
-  const url = `${PUBLIC_BASE}${path}.rss${query ? `?${query}` : ''}`;
+async function cachedRequest<T>(
+  url: string,
+  opts: { fresh?: boolean; budget: number; headers: Record<string, string>; parse: (res: Response, text: string) => T },
+): Promise<T> {
   const now = Date.now();
-  const cached = feedCache.get(url);
-  const usable = cached && now - cached.at < STALE_MS ? cached.entries : null;
+  const cached = responseCache.get(url);
+  const usable = cached && now - cached.at < STALE_MS ? (cached.data as T) : null;
 
-  if (cached && !opts.fresh && now - cached.at < FRESH_MS) return cached.entries;
+  if (cached && !opts.fresh && now - cached.at < FRESH_MS) return cached.data as T;
   if (now < cooldownUntil) {
     // Quietly show the saved copy, unless the reader explicitly asked for new posts.
     if (usable && !opts.fresh) return usable;
     throw new RateLimitError(Math.ceil((cooldownUntil - now) / 1000));
   }
   const pending = inflight.get(url);
-  if (pending) return pending;
+  if (pending) return pending as Promise<T>;
 
   const run = (async () => {
-    const wait = budgetWaitMs(Date.now());
+    const wait = budgetWaitMs(Date.now(), opts.budget);
     if (wait > 0) {
       if (usable && !opts.fresh) return usable;
       if (wait > MAX_WAIT_MS) throw new RateLimitError(Math.ceil(wait / 1000));
@@ -231,7 +248,7 @@ async function requestFeed(path: string, params: Record<string, string>, opts: {
 
     let res: Response;
     try {
-      res = await fetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/atom+xml' } });
+      res = await fetch(url, { headers: opts.headers, credentials: 'include' });
     } catch {
       if (usable) return usable;
       throw new RedditError('Could not reach Reddit. Check your internet connection.');
@@ -242,12 +259,9 @@ async function requestFeed(path: string, params: Record<string, string>, opts: {
       if (usable && !opts.fresh) return usable;
       throw new RateLimitError(sec);
     }
-    checkStatus(res);
-    const text = await res.text();
-    if (!isAtom(text)) throw new RedditError('Reddit sent back a web page instead of a feed. Try again in a minute.');
-    const entries = parseAtom(text);
-    feedCache.set(url, { at: Date.now(), entries });
-    return entries;
+    const data = opts.parse(res, await res.text());
+    responseCache.set(url, { at: Date.now(), data });
+    return data;
   })();
 
   inflight.set(url, run);
@@ -255,6 +269,71 @@ async function requestFeed(path: string, params: Record<string, string>, opts: {
     return await run;
   } finally {
     inflight.delete(url);
+  }
+}
+
+/** Public Atom feeds: work logged out, but carry less data. */
+function requestFeed(path: string, params: Record<string, string>, opts: { fresh?: boolean } = {}): Promise<AtomEntry[]> {
+  const query = new URLSearchParams(params).toString();
+  return cachedRequest(`${PUBLIC_BASE}${path}.rss${query ? `?${query}` : ''}`, {
+    fresh: opts.fresh,
+    budget: BUDGET_LOGGED_OUT,
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/atom+xml' },
+    parse: (res, text) => {
+      checkStatus(res);
+      if (!isAtom(text)) throw new RedditError('Reddit sent back a web page instead of a feed. Try again in a minute.');
+      return parseAtom(text);
+    },
+  });
+}
+
+/**
+ * Full JSON data using the in-app sign-in. On Android the app's network layer
+ * shares cookies with the login web view, so the Reddit session rides along.
+ */
+function requestSession(path: string, params: Record<string, string>, opts: { fresh?: boolean } = {}): Promise<any> {
+  const query = new URLSearchParams({ raw_json: '1', ...params }).toString();
+  return cachedRequest(`${PUBLIC_BASE}${path}.json?${query}`, {
+    fresh: opts.fresh,
+    budget: BUDGET_SIGNED_IN,
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+    parse: (res, text) => {
+      if (res.status === 401 || res.status === 403 || /\/login/.test(res.url ?? '')) throw new SessionExpiredError();
+      checkStatus(res);
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new SessionExpiredError(); // an HTML login/block page instead of data
+      }
+    },
+  });
+}
+
+/** Signed-in requests first; if the session stopped working, fall back to the public feeds. */
+async function withSession<T>(auth: RedditAuth | undefined, signedIn: () => Promise<T>, loggedOut: () => Promise<T>): Promise<T> {
+  if (Platform.OS !== 'web' && auth?.session) {
+    try {
+      return await signedIn();
+    } catch (e) {
+      if (!(e instanceof SessionExpiredError)) throw e;
+      sessionExpiredListener?.();
+    }
+  }
+  return loggedOut();
+}
+
+/** Who the in-app sign-in belongs to, or null if it isn't signed in. */
+export async function fetchSignedInUser(): Promise<string | null> {
+  try {
+    const res = await fetch(`${PUBLIC_BASE}/api/me.json?raw_json=1`, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+      credentials: 'include',
+    });
+    if (!res.ok) return null;
+    const json = JSON.parse(await res.text());
+    return typeof json?.data?.name === 'string' ? json.data.name : null;
+  } catch {
+    return null;
   }
 }
 
@@ -327,6 +406,27 @@ export type FeedOptions = {
   fresh?: boolean;
 };
 
+function listingFromJson(json: any, filterOpts: FilterOptions): Listing {
+  const raw: Post[] = (json?.data?.children ?? []).filter((c: any) => c.kind === 't3').map((c: any) => normalizePost(c.data));
+  const posts = filterPosts(raw, filterOpts);
+  return { posts, after: json?.data?.after ?? null, hiddenCount: raw.length - posts.length };
+}
+
+function postFromJson(json: any, filterOpts: FilterOptions): { post: Post | null; comments: Comment[] } {
+  const postData = json?.[0]?.data?.children?.[0]?.data;
+  if (!postData) return { post: null, comments: [] };
+  const post = normalizePost(postData);
+  if (filterPosts([post], filterOpts).length === 0) return { post: null, comments: [] };
+  return { post, comments: filterComments(normalizeComments(json?.[1]?.data?.children ?? []), filterOpts) };
+}
+
+function subredditVerdict(json: any): { ok: boolean; reason?: string } {
+  const d = json?.data;
+  if (!d || json?.kind !== 't5') return { ok: false, reason: 'Subreddit not found.' };
+  if (d.over18 || d.quarantine) return { ok: false, reason: 'This subreddit is marked as adult content.' };
+  return { ok: true };
+}
+
 export async function fetchFeed(opts: FeedOptions): Promise<Listing> {
   const subs = opts.subreddits.filter((s) => isSubredditAllowed(s));
   if (subs.length === 0) return { posts: [], after: null, hiddenCount: 0 };
@@ -334,42 +434,48 @@ export async function fetchFeed(opts: FeedOptions): Promise<Listing> {
   if (opts.after) params.after = opts.after;
   if (opts.sort === 'top') params.t = 'week';
   const filterOpts = { strict: opts.strict ?? true, extraWords: opts.extraBlockedWords ?? [] };
-  if (readsFeeds(opts.auth)) {
-    const entries = await requestFeed(`/r/${subs.join('+')}/${opts.sort}/`, params, { fresh: opts.fresh });
-    const raw = entries.filter((e) => e.id.startsWith('t3_')).map(entryToPost);
-    const posts = filterPosts(raw, filterOpts);
-    const last = entries[entries.length - 1];
-    return { posts, after: entries.length >= 25 && last ? last.id : null, hiddenCount: raw.length - posts.length };
-  }
-  const json = await request(`/r/${subs.join('+')}/${opts.sort}`, params, opts.auth);
-  const raw: Post[] = (json?.data?.children ?? []).filter((c: any) => c.kind === 't3').map((c: any) => normalizePost(c.data));
-  const posts = filterPosts(raw, filterOpts);
-  return { posts, after: json?.data?.after ?? null, hiddenCount: raw.length - posts.length };
+  const path = `/r/${subs.join('+')}/${opts.sort}`;
+
+  return withSession(
+    opts.auth,
+    async () => listingFromJson(await requestSession(path, params, { fresh: opts.fresh }), filterOpts),
+    async () => {
+      if (readsFeeds(opts.auth)) {
+        // Feed "after" cursors are post IDs, same as JSON ones, so paging survives a fallback.
+        const entries = await requestFeed(`${path}/`, params, { fresh: opts.fresh });
+        const raw = entries.filter((e) => e.id.startsWith('t3_')).map(entryToPost);
+        const posts = filterPosts(raw, filterOpts);
+        const last = entries[entries.length - 1];
+        return { posts, after: entries.length >= 25 && last ? last.id : null, hiddenCount: raw.length - posts.length };
+      }
+      return listingFromJson(await request(path, params, opts.auth), filterOpts);
+    },
+  );
 }
 
 export async function fetchPost(
   id: string,
   opts: { auth?: RedditAuth; strict?: boolean; extraBlockedWords?: string[]; permalink?: string } = {},
 ): Promise<{ post: Post | null; comments: Comment[] }> {
-  if (readsFeeds(opts.auth)) {
-    const path = opts.permalink ? opts.permalink.replace(/\/?$/, '/') : `/comments/${id}/`;
-    const entries = await requestFeed(path, { limit: '60' });
-    const postEntry = entries.find((e) => e.id === `t3_${id}`) ?? entries.find((e) => e.id.startsWith('t3_'));
-    if (!postEntry) return { post: null, comments: [] };
-    const post = entryToPost(postEntry);
-    const filterOpts = { strict: opts.strict ?? true, extraWords: opts.extraBlockedWords ?? [] };
-    if (filterPosts([post], filterOpts).length === 0) return { post: null, comments: [] };
-    const comments = filterComments(entries.filter((e) => e.id.startsWith('t1_')).map(entryToComment), filterOpts);
-    return { post, comments };
-  }
-  const json = await request(`/comments/${id}`, { limit: '60', depth: '3', sort: 'top' }, opts.auth);
-  const postData = json?.[0]?.data?.children?.[0]?.data;
-  if (!postData) return { post: null, comments: [] };
-  const post = normalizePost(postData);
   const filterOpts = { strict: opts.strict ?? true, extraWords: opts.extraBlockedWords ?? [] };
-  if (filterPosts([post], filterOpts).length === 0) return { post: null, comments: [] };
-  const comments = filterComments(normalizeComments(json?.[1]?.data?.children ?? []), filterOpts);
-  return { post, comments };
+  const commentParams = { limit: '100', depth: '4', sort: 'top' };
+  return withSession(
+    opts.auth,
+    async () => postFromJson(await requestSession(`/comments/${id}`, commentParams), filterOpts),
+    async () => {
+      if (readsFeeds(opts.auth)) {
+        const path = opts.permalink ? opts.permalink.replace(/\/?$/, '/') : `/comments/${id}/`;
+        const entries = await requestFeed(path, { limit: '60' });
+        const postEntry = entries.find((e) => e.id === `t3_${id}`) ?? entries.find((e) => e.id.startsWith('t3_'));
+        if (!postEntry) return { post: null, comments: [] };
+        const post = entryToPost(postEntry);
+        if (filterPosts([post], filterOpts).length === 0) return { post: null, comments: [] };
+        const comments = filterComments(entries.filter((e) => e.id.startsWith('t1_')).map(entryToComment), filterOpts);
+        return { post, comments };
+      }
+      return postFromJson(await request(`/comments/${id}`, commentParams, opts.auth), filterOpts);
+    },
+  );
 }
 
 /** Checks Reddit's own adult-content flag before letting the user add a subreddit. */
@@ -378,18 +484,20 @@ export async function checkSubreddit(name: string, auth?: RedditAuth): Promise<{
   if (!/^[A-Za-z0-9_]{2,21}$/.test(clean)) return { ok: false, reason: 'That is not a valid subreddit name.' };
   if (!isSubredditAllowed(clean)) return { ok: false, reason: 'This subreddit is blocked by the content filter.' };
   try {
-    if (readsFeeds(auth)) {
-      // Reddit hides adult and quarantined communities from logged-out visitors,
-      // so if the public feed doesn't load we don't add it.
-      const entries = await requestFeed(`/r/${clean}/hot/`, { limit: '5' });
-      if (entries.length === 0) return { ok: false, reason: 'Subreddit not found or empty.' };
-      return { ok: true };
-    }
-    const json = await request(`/r/${clean}/about`, {}, auth);
-    const d = json?.data;
-    if (!d || json?.kind !== 't5') return { ok: false, reason: 'Subreddit not found.' };
-    if (d.over18 || d.quarantine) return { ok: false, reason: 'This subreddit is marked as adult content.' };
-    return { ok: true };
+    return await withSession(
+      auth,
+      async () => subredditVerdict(await requestSession(`/r/${clean}/about`, {})),
+      async () => {
+        if (readsFeeds(auth)) {
+          // Reddit hides adult and quarantined communities from logged-out visitors,
+          // so if the public feed doesn't load we don't add it.
+          const entries = await requestFeed(`/r/${clean}/hot/`, { limit: '5' });
+          if (entries.length === 0) return { ok: false, reason: 'Subreddit not found or empty.' };
+          return { ok: true };
+        }
+        return subredditVerdict(await request(`/r/${clean}/about`, {}, auth));
+      },
+    );
   } catch (e) {
     if (e instanceof RedditError && (e.status === 403 || e.status === 404 || !e.status)) {
       return { ok: false, reason: 'Couldn’t confirm this community is public and family-friendly, so it wasn’t added.' };
@@ -401,7 +509,8 @@ export async function checkSubreddit(name: string, auth?: RedditAuth): Promise<{
 /**
  * Feeds list comments without saying which comment each reply belongs to, so
  * replies are loaded on demand from the comment's own feed (that comment and
- * everything under it). Returns them in thread order.
+ * everything under it). Returns them in thread order. Signed-in data comes
+ * already nested, so this is only needed for logged-out feeds.
  */
 export async function fetchReplies(
   comment: Comment,

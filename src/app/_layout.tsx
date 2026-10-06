@@ -16,6 +16,7 @@ export default function RootLayout() {
           <Stack.Screen name="note" options={{ presentation: 'modal' }} />
           <Stack.Screen name="quiz" options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="subreddits" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="reddit-login" options={{ presentation: 'modal' }} />
         </Stack>
       </StoreProvider>
     </SafeAreaProvider>

@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconName, Pill } from '@/components/ui';
 import { BUILT_IN_PROXY } from '@/lib/reddit';
+import { clearRedditSession } from '@/lib/session';
 import { useStore } from '@/lib/store';
 import { colors, radius, spacing, type } from '@/lib/theme';
 
@@ -60,14 +61,14 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
   );
 }
 
-function confirm(title: string, message: string, onYes: () => void) {
+function confirm(title: string, message: string, onYes: () => void, yesLabel = 'Delete') {
   if (Platform.OS === 'web') {
     if (window.confirm(`${title}\n\n${message}`)) onYes();
     return;
   }
   Alert.alert(title, message, [
     { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: onYes },
+    { text: yesLabel, style: 'destructive', onPress: onYes },
   ]);
 }
 
@@ -80,7 +81,11 @@ export default function SettingsScreen() {
   return (
     <ScrollView
       style={{ backgroundColor: colors.canvas }}
-      contentContainerStyle={{ paddingTop: insets.top + spacing.lg, paddingHorizontal: spacing.xl, paddingBottom: insets.bottom + 120 }}
+      contentContainerStyle={{
+        paddingTop: insets.top + spacing.lg,
+        paddingHorizontal: spacing.xl,
+        paddingBottom: insets.bottom + 120,
+      }}
       keyboardShouldPersistTaps="handled">
       <Text style={[type.hero, { color: colors.ink }]}>Settings</Text>
       <Text style={[type.hero, { color: colors.muted, marginBottom: spacing.xl }]}>Make it yours</Text>
@@ -107,7 +112,12 @@ export default function SettingsScreen() {
       <Section
         title="Clean content"
         footer="Adult and quarantined communities don’t load and can’t be added, and adult words, sites and communities are always filtered. Keyword filtering is a safety net and can occasionally miss or over-block.">
-        <Row icon="shield" title="Adult content" subtitle="Always hidden" right={<Feather name="lock" size={18} color={colors.muted} />} />
+        <Row
+          icon="shield"
+          title="Adult content"
+          subtitle="Always hidden"
+          right={<Feather name="lock" size={18} color={colors.muted} />}
+        />
         <Row
           icon="filter"
           title="Strict filter"
@@ -134,7 +144,14 @@ export default function SettingsScreen() {
             style={styles.input}
             value={words}
             onChangeText={setWords}
-            onBlur={() => updateSettings({ blockedWords: words.split(',').map((w) => w.trim()).filter(Boolean) })}
+            onBlur={() =>
+              updateSettings({
+                blockedWords: words
+                  .split(',')
+                  .map((w) => w.trim())
+                  .filter(Boolean),
+              })
+            }
             placeholder="e.g. politics, spoilers"
             placeholderTextColor={colors.muted}
             autoCapitalize="none"
@@ -148,7 +165,12 @@ export default function SettingsScreen() {
           <Text style={styles.rowSubtitle}>Offer a quick quiz after reading this many posts</Text>
           <View style={styles.pills}>
             {[0, 3, 5, 10].map((n) => (
-              <Pill key={n} label={n === 0 ? 'Off' : String(n)} active={settings.quizEvery === n} onPress={() => updateSettings({ quizEvery: n })} />
+              <Pill
+                key={n}
+                label={n === 0 ? 'Off' : String(n)}
+                active={settings.quizEvery === n}
+                onPress={() => updateSettings({ quizEvery: n })}
+              />
             ))}
           </View>
         </View>
@@ -212,21 +234,62 @@ export default function SettingsScreen() {
           </View>
         </Section>
       ) : (
-        <Section
-          title="Reddit connection"
-          footer="Optional, and only if you already have one: the client ID of a Reddit “installed app”. Reddit no longer lets people create new ones. No Reddit login is needed.">
-          <View style={styles.block}>
-            <TextInput
-              style={styles.input}
-              value={settings.redditClientId}
-              onChangeText={(redditClientId) => updateSettings({ redditClientId: redditClientId.trim() })}
-              placeholder="Reddit client ID"
-              placeholderTextColor={colors.muted}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-        </Section>
+        <>
+          <Section
+            title="Reddit account"
+            footer="Optional. Signing in brings back full comment threads, vote counts and Reddit’s own NSFW flag, with fewer “short break” pauses. Use a spare account: Clean Reddit only reads, and never posts, votes or messages. If the sign-in stops working, the app goes back to logged-out mode by itself.">
+            {settings.redditSession ? (
+              <Row
+                icon="user-check"
+                title={`Signed in as u/${settings.redditUser}`}
+                subtitle="Loading full Reddit data"
+                last
+                right={
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() =>
+                      confirm(
+                        'Sign out of Reddit?',
+                        'The app will go back to logged-out mode.',
+                        async () => {
+                          await clearRedditSession();
+                          updateSettings({ redditSession: false, redditUser: '', redditSessionExpired: false });
+                        },
+                        'Sign out',
+                      )
+                    }>
+                    <Text style={styles.link}>Sign out</Text>
+                  </Pressable>
+                }
+              />
+            ) : (
+              <Row
+                icon="log-in"
+                title="Sign in to Reddit"
+                subtitle={settings.redditSessionExpired ? 'Your last sign-in expired. Sign in again.' : 'Use a spare account'}
+                last
+                onPress={() => router.push('/reddit-login')}
+                right={<Feather name="chevron-right" size={20} color={colors.muted} />}
+              />
+            )}
+          </Section>
+
+          <Section
+            title="Reddit API (advanced)"
+            footer="Only if you already have one: the client ID of a Reddit “installed app”. Reddit no longer lets people create new ones.">
+            <View style={styles.block}>
+              <TextInput
+                style={styles.input}
+                value={settings.redditClientId}
+                onChangeText={(redditClientId) => updateSettings({ redditClientId: redditClientId.trim() })}
+                placeholder="Reddit client ID"
+                placeholderTextColor={colors.muted}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          </Section>
+        </>
       )}
 
       <Section title="Data">
@@ -235,7 +298,12 @@ export default function SettingsScreen() {
           title="Clear all data"
           subtitle={`Deletes ${notes.length} notes, history, quiz cards and settings`}
           last
-          onPress={() => confirm('Clear all data?', 'This cannot be undone.', () => clearAllData())}
+          onPress={() =>
+            confirm('Clear all data?', 'This cannot be undone. It also signs you out of Reddit.', async () => {
+              await clearRedditSession();
+              await clearAllData();
+            })
+          }
         />
       </Section>
     </ScrollView>
@@ -243,7 +311,15 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  sectionTitle: { fontSize: 14, fontWeight: '600', color: colors.muted, marginBottom: spacing.sm, marginLeft: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.6 },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.muted,
+    marginBottom: spacing.sm,
+    marginLeft: spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, paddingHorizontal: spacing.lg },
   footer: { fontSize: 13, color: colors.muted, lineHeight: 18, marginTop: spacing.sm, marginHorizontal: spacing.xs },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md + 2 },

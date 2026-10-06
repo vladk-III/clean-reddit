@@ -66,6 +66,19 @@ The default feed is made of learning-focused communities: TIL, ELI5, AskScience,
 ### Privacy
 There are no accounts and no analytics. Notes, reading history, quiz cards and settings are stored only on your device. The app talks only to `reddit.com` (the website goes through your own relay), plus `api.anthropic.com` if you turn on AI questions.
 
+## Signing in to Reddit (optional, Android)
+Reddit now limits what logged-out apps can see. By default the app reads Reddit's public feeds, which have no vote counts or per-post NSFW flag, and only load replies on tap. To get full data back:
+
+1. In **Settings → Reddit account**, tap **Sign in to Reddit**.
+2. Log in on Reddit's own page. The app never sees your password.
+
+The app then loads full Reddit data: threaded replies, vote and comment counts, Reddit's NSFW flag (added to the filter), and a larger request allowance.
+
+- **Use a spare account.** Signing in this way isn't an officially supported API route.
+- **The app only reads.** It never posts, votes or messages.
+- **Your sign-in stays on the phone.** **Sign out** in Settings clears it.
+- **If the sign-in stops working**, the app falls back to logged-out mode by itself and Settings asks you to sign in again.
+
 ## If posts don't load in the phone app
 Reddit sometimes rate-limits anonymous apps. Wait a minute and pull to refresh. If you already have a Reddit API client ID (type *installed app*), you can paste it in **Settings → Reddit connection**. Reddit no longer lets people create new ones, so this is only for people who have one already.
 

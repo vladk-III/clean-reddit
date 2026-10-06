@@ -40,10 +40,10 @@ export default function FeedScreen() {
 
   const subs = useMemo(() => (selected ? [selected] : settings.subreddits), [selected, settings.subreddits]);
   // Only settings that change which posts are fetched or shown; editing your name etc. shouldn't refetch.
-  const { strictFilter, blockedWords, redditClientId, redditProxy } = settings;
+  const { strictFilter, blockedWords, redditClientId, redditProxy, redditSession } = settings;
   const filterOpts = useMemo(
-    () => feedFilterOptions({ strictFilter, blockedWords, redditClientId, redditProxy }),
-    [strictFilter, blockedWords, redditClientId, redditProxy],
+    () => feedFilterOptions({ strictFilter, blockedWords, redditClientId, redditProxy, redditSession }),
+    [strictFilter, blockedWords, redditClientId, redditProxy, redditSession],
   );
   const feedKey = useMemo(() => JSON.stringify({ subs, sort, filterOpts }), [subs, sort, filterOpts]);
   const current = loadedKey === feedKey;
