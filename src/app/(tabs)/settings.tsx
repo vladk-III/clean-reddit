@@ -5,6 +5,7 @@ import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Te
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconName, Pill } from '@/components/ui';
+import { BUILT_IN_PROXY } from '@/lib/reddit';
 import { useStore } from '@/lib/store';
 import { colors, radius, spacing, type } from '@/lib/theme';
 
@@ -189,24 +190,47 @@ export default function SettingsScreen() {
         ) : null}
       </Section>
 
-      <Section
-        title="Reddit connection"
-        footer="Optional. If posts fail to load, create a free “installed app” at reddit.com/prefs/apps and paste its client ID here. No Reddit login is needed.">
-        <View style={styles.block}>
-          <TextInput
-            style={styles.input}
-            value={settings.redditClientId}
-            onChangeText={(redditClientId) => updateSettings({ redditClientId: redditClientId.trim() })}
-            placeholder="Reddit client ID"
-            placeholderTextColor={colors.muted}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <Pressable onPress={() => Linking.openURL('https://www.reddit.com/prefs/apps')}>
-            <Text style={styles.link}>Open reddit.com/prefs/apps</Text>
-          </Pressable>
-        </View>
-      </Section>
+      {Platform.OS === 'web' ? (
+        <Section
+          title="Reddit connection"
+          footer={
+            BUILT_IN_PROXY
+              ? 'This site already has a relay set up. Only change this if you run your own.'
+              : 'Reddit blocks websites from loading its posts directly, so the website needs a small relay. See “Website setup” in the README.'
+          }>
+          <View style={styles.block}>
+            <Text style={styles.rowTitle}>Relay URL</Text>
+            <TextInput
+              style={styles.input}
+              value={settings.redditProxy}
+              onChangeText={(redditProxy) => updateSettings({ redditProxy: redditProxy.trim() })}
+              placeholder={BUILT_IN_PROXY || 'https://clean-reddit-proxy.your-name.workers.dev'}
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        </Section>
+      ) : (
+        <Section
+          title="Reddit connection"
+          footer="Optional. If posts fail to load, create a free “installed app” at reddit.com/prefs/apps and paste its client ID here. No Reddit login is needed.">
+          <View style={styles.block}>
+            <TextInput
+              style={styles.input}
+              value={settings.redditClientId}
+              onChangeText={(redditClientId) => updateSettings({ redditClientId: redditClientId.trim() })}
+              placeholder="Reddit client ID"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Pressable onPress={() => Linking.openURL('https://www.reddit.com/prefs/apps')}>
+              <Text style={styles.link}>Open reddit.com/prefs/apps</Text>
+            </Pressable>
+          </View>
+        </Section>
+      )}
 
       <Section title="Data">
         <Row

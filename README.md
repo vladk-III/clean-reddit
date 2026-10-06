@@ -22,6 +22,21 @@ Open **https://vladk-iii.github.io/clean-reddit/**. On a phone, use *Add to Home
 
 The site is redeployed every time `main` changes. **One-time setup:** in the repo, go to *Settings → Pages → Build and deployment → Source* and choose **GitHub Actions**.
 
+#### Website setup: the Reddit relay
+Reddit blocks websites from loading its posts directly. (The phone app isn't affected.) The website therefore reads Reddit through a tiny relay, [`proxy/reddit-proxy.js`](proxy/reddit-proxy.js), that you host for free on Cloudflare. It takes about 5 minutes:
+
+1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com).
+2. Go to **Workers & Pages → Create → Create Worker**. Name it `clean-reddit-proxy` and click **Deploy**.
+3. Click **Edit code**. Replace everything with the contents of `proxy/reddit-proxy.js`, then click **Deploy**.
+4. Under the worker's **Settings → Variables and Secrets**, add:
+   - `REDDIT_CLIENT_ID` (type *Secret*). Create an **installed app** at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) (you can use any redirect URI, e.g. `http://localhost`) and paste the short ID shown under its name. Reddit often blocks anonymous requests from cloud servers, so this is strongly recommended.
+   - `ALLOWED_ORIGIN` = `https://vladk-iii.github.io`. This makes only your site able to use the relay.
+5. Copy the worker's URL, e.g. `https://clean-reddit-proxy.your-name.workers.dev`.
+6. In this GitHub repo, go to **Settings → Secrets and variables → Actions → Variables → New repository variable**. Set name `REDDIT_PROXY_URL` and value = the worker URL.
+7. Go to **Actions → Deploy web app to GitHub Pages → Run workflow**.
+
+To test before step 6, paste the worker URL into the website's **Settings → Reddit connection → Relay URL**.
+
 ### Android
 1. Open the [Releases](../../releases) page and download the latest `clean-reddit-x.y.z.apk`.
 2. Open the file on your phone. Allow "install unknown apps" for your browser or file manager if Android asks.
@@ -66,10 +81,10 @@ The default feed is made of learning-focused communities: TIL, ELI5, AskScience,
 - Use the share button to export your notes, with links back to the posts.
 
 ### Privacy
-There are no accounts and no analytics. Notes, reading history, quiz cards and settings are stored only on your device. The app talks only to `reddit.com`, plus `api.anthropic.com` if you turn on AI questions.
+There are no accounts and no analytics. Notes, reading history, quiz cards and settings are stored only on your device. The app talks only to `reddit.com` (the website goes through your own relay), plus `api.anthropic.com` if you turn on AI questions.
 
-## If posts don't load
-Reddit sometimes blocks anonymous apps. To fix it:
+## If posts don't load in the phone app
+Reddit sometimes blocks anonymous apps. (On the website, see *Website setup* above instead.) To fix it:
 1. Go to [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) and create an app of type **installed app**. You can use any redirect URI, for example `http://localhost`.
 2. Copy its client ID (the short string under the app name).
 3. In the app, open **Settings → Reddit connection** and paste it.
@@ -104,6 +119,8 @@ src/
     ai.ts              optional Claude-generated questions
     store.tsx          on-device storage (settings, notes, history, cards, stats)
     theme.ts           design tokens
+proxy/
+  reddit-proxy.js      Cloudflare Worker relay for the website
 ```
 
 ### Design

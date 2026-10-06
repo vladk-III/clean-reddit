@@ -19,6 +19,8 @@ export type Settings = {
   aiQuizzes: boolean;
   anthropicKey: string;
   redditClientId: string;
+  /** Web only: overrides the relay URL built into the site. */
+  redditProxy: string;
 };
 
 export type Note = {
@@ -61,6 +63,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiQuizzes: false,
   anthropicKey: '',
   redditClientId: '',
+  redditProxy: '',
 };
 
 type PersistedState = {
@@ -244,6 +247,6 @@ export function feedFilterOptions(settings: Settings) {
   return {
     strict: settings.strictFilter,
     extraBlockedWords: settings.blockedWords,
-    auth: settings.redditClientId ? { clientId: settings.redditClientId } : undefined,
+    auth: { clientId: settings.redditClientId || undefined, proxyUrl: settings.redditProxy || undefined },
   };
 }

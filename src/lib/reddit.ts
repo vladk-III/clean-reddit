@@ -38,8 +38,16 @@ export type SortMode = 'hot' | 'top' | 'new' | 'rising';
 
 export type RedditAuth = {
   /** Client ID of a Reddit "installed app" (reddit.com/prefs/apps). Optional. */
-  clientId: string;
+  clientId?: string;
+  /** Web only: URL of the relay in proxy/reddit-proxy.js. */
+  proxyUrl?: string;
 };
+
+/** Relay baked into the web build (GitHub repo variable REDDIT_PROXY_URL). */
+export const BUILT_IN_PROXY = process.env.EXPO_PUBLIC_REDDIT_PROXY ?? '';
+
+const WEB_NEEDS_PROXY =
+  'Reddit doesn’t let websites load its posts directly. The phone app works without this; for the website, set up the free relay described in the README (or paste its URL in Settings → Reddit connection).';
 
 const USER_AGENT = `${Platform.OS}:clean-reddit:v1.0.0 (open source reader)`;
 const PUBLIC_BASE = 'https://www.reddit.com';
@@ -89,7 +97,7 @@ async function getToken(clientId: string): Promise<string> {
     headers: {
       Authorization: `Basic ${base64(`${clientId}:`)}`,
       'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': USER_AGENT,
+      ...(Platform.OS === 'web' ? {} : { 'User-Agent': USER_AGENT }),
     },
     body: `grant_type=${encodeURIComponent('https://oauth.reddit.com/grants/installed_client')}&device_id=${randomDeviceId()}`,
   });
@@ -109,14 +117,28 @@ async function request(path: string, params: Record<string, string>, auth?: Redd
   if (Platform.OS !== 'web') headers['User-Agent'] = USER_AGENT;
 
   let url: string;
-  if (auth?.clientId) {
+  if (Platform.OS === 'web') {
+    // Browsers can't call Reddit directly (no CORS), so the website always goes through the relay.
+    const proxy = (auth?.proxyUrl || BUILT_IN_PROXY).trim().replace(/\/+$/, '');
+    if (!proxy) throw new RedditError(WEB_NEEDS_PROXY);
+    url = `${proxy}${path}.json?${query}`;
+  } else if (auth?.clientId) {
     headers.Authorization = `Bearer ${await getToken(auth.clientId)}`;
     url = `${OAUTH_BASE}${path}?${query}`;
   } else {
     url = `${PUBLIC_BASE}${path}.json?${query}`;
   }
 
-  const res = await fetch(url, { headers });
+  let res: Response;
+  try {
+    res = await fetch(url, { headers });
+  } catch {
+    throw new RedditError(
+      Platform.OS === 'web'
+        ? 'Could not reach the Reddit relay. Check its URL in Settings → Reddit connection.'
+        : 'Could not reach Reddit. Check your internet connection.',
+    );
+  }
   if (res.status === 429) throw new RedditError('Reddit is rate limiting requests. Try again in a minute.', 429);
   if (res.status === 403) {
     throw new RedditError(
