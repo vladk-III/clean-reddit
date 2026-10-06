@@ -26,16 +26,13 @@ The site is redeployed every time `main` changes. **One-time setup:** in the rep
 Reddit blocks websites from loading its posts directly. (The phone app isn't affected.) The website therefore reads Reddit through a tiny relay, [`proxy/reddit-proxy.js`](proxy/reddit-proxy.js), that you host for free on Cloudflare. It takes about 5 minutes:
 
 1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com).
-2. Go to **Workers & Pages → Create → Create Worker**. Name it `clean-reddit-proxy` and click **Deploy**.
-3. Click **Edit code**. Replace everything with the contents of `proxy/reddit-proxy.js`, then click **Deploy**.
-4. Under the worker's **Settings → Variables and Secrets**, add:
-   - `REDDIT_CLIENT_ID` (type *Secret*). Create an **installed app** at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) (you can use any redirect URI, e.g. `http://localhost`) and paste the short ID shown under its name. Reddit often blocks anonymous requests from cloud servers, so this is strongly recommended.
-   - `ALLOWED_ORIGIN` = `https://vladk-iii.github.io`. This makes only your site able to use the relay.
-5. Copy the worker's URL, e.g. `https://clean-reddit-proxy.your-name.workers.dev`.
-6. In this GitHub repo, go to **Settings → Secrets and variables → Actions → Variables → New repository variable**. Set name `REDDIT_PROXY_URL` and value = the worker URL.
-7. Go to **Actions → Deploy web app to GitHub Pages → Run workflow**.
+2. Go to **Workers & Pages → Create application** and import this GitHub repo. Name the worker `clean-reddit` to match [`wrangler.jsonc`](wrangler.jsonc). Cloudflare redeploys the relay on every push to `main`.
+3. Under the worker's **Settings → Variables and Secrets**, add `REDDIT_CLIENT_ID` as a *Secret*. To get one, create an **installed app** at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) (you can use any redirect URI, e.g. `http://localhost`) and paste the short ID shown under its name. Reddit often blocks anonymous requests from cloud servers, so this is strongly recommended.
+4. The website is built to use `https://clean-reddit.vk31999.workers.dev`. If your worker has a different URL, add a GitHub repo variable named `REDDIT_PROXY_URL` (**Settings → Secrets and variables → Actions → Variables**) and re-run **Actions → Deploy web app to GitHub Pages**.
 
-To test before step 6, paste the worker URL into the website's **Settings → Reddit connection → Relay URL**.
+The relay only accepts requests from `https://vladk-iii.github.io`. To change that, edit `ALLOWED_ORIGIN` in `wrangler.jsonc`.
+
+To try a different relay without rebuilding, paste its URL into the website's **Settings → Reddit connection → Relay URL**.
 
 ### Android
 1. Open the [Releases](../../releases) page and download the latest `clean-reddit-x.y.z.apk`.

@@ -1,0 +1,15 @@
+// Cloudflare Worker config for the Reddit relay used by the website.
+// Cloudflare builds this automatically when the repo is connected to the
+// "clean-reddit" Worker (Workers & Pages → clean-reddit → Settings → Build).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "clean-reddit",
+  "main": "proxy/reddit-proxy.js",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  // Keep variables added in the Cloudflare dashboard when deploying.
+  "keep_vars": true,
+  "vars": {
+    "ALLOWED_ORIGIN": "https://vladk-iii.github.io"
+  }
+}

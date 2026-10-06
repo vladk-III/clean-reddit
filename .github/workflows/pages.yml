@@ -28,8 +28,8 @@ jobs:
         run: npx expo export --platform web --clear
         env:
           EXPO_BASE_URL: /${{ github.event.repository.name }}
-          # Set this repo variable to your relay URL (see README, "Website setup").
-          EXPO_PUBLIC_REDDIT_PROXY: ${{ vars.REDDIT_PROXY_URL }}
+          # Relay from proxy/reddit-proxy.js; override with the REDDIT_PROXY_URL repo variable.
+          EXPO_PUBLIC_REDDIT_PROXY: ${{ vars.REDDIT_PROXY_URL || 'https://clean-reddit.vk31999.workers.dev' }}
       # Single-page app: serve index.html for deep links too.
       - run: cp dist/index.html dist/404.html && touch dist/.nojekyll
       - uses: actions/upload-pages-artifact@v3
