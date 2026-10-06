@@ -1,5 +1,6 @@
-name: Deploy web app to GitHub Pages
+name: Deploy download page to GitHub Pages
 
+# Builds the Android APK and publishes it with the download page in site/.
 on:
   push:
     branches: [main]
@@ -15,29 +16,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  apk:
+    uses: ./.github/workflows/build-apk.yml
+
+  site:
+    needs: apk
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/download-artifact@v4
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Export web build
-        run: npx expo export --platform web --clear
-        env:
-          EXPO_BASE_URL: /${{ github.event.repository.name }}
-          # Relay from proxy/reddit-proxy.js; override with the REDDIT_PROXY_URL repo variable.
-          EXPO_PUBLIC_REDDIT_PROXY: ${{ vars.REDDIT_PROXY_URL || 'https://clean-reddit.vk31999.workers.dev' }}
-      # Single-page app: serve index.html for deep links too.
-      - run: cp dist/index.html dist/404.html && touch dist/.nojekyll
+          name: apk
+          path: _site
+      - name: Assemble site
+        run: |
+          cp site/* _site/
+          mkdir -p _site/screenshots && cp docs/screenshots/*.png _site/screenshots/
+          SIZE=$(du -m _site/clean-reddit.apk | cut -f1)
+          DATE=$(date -u +"%B %-d, %Y")
+          VERSION=$(node -p "require('./app.json').expo.version")
+          sed -i "s/{{SIZE}}/${SIZE}/g; s/{{DATE}}/${DATE}/g; s/{{VERSION}}/${VERSION}/g; s/{{COMMIT}}/${GITHUB_SHA::7}/g" _site/index.html
+          touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: _site
 
   deploy:
-    needs: build
+    needs: site
     runs-on: ubuntu-latest
     environment:
       name: github-pages

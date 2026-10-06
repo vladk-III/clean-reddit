@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clean Reddit</title>
+    <meta name="description" content="A calm, family-friendly Reddit reader that helps you remember what you read. Download the Android app." />
+    <meta name="theme-color" content="#EFEEEB" />
+    <style>
+      :root {
+        --canvas: #efeeeb;
+        --surface: #ffffff;
+        --tile: #f4f3f0;
+        --border: #e7e5e1;
+        --ink: #1f1f1f;
+        --ink-soft: #3a3a3a;
+        --muted: #8a8883;
+        --dark: #2b2b2b;
+        --accent: #f07a2b;
+        --accent-soft: #fdebdd;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; }
+      header { padding: 56px 24px 32px; }
+      h1 { font-size: 44px; line-height: 1.05; letter-spacing: -1.5px; margin: 0; }
+      h1 span { display: block; color: var(--muted); }
+      .lede { font-size: 18px; line-height: 1.5; color: var(--ink-soft); margin: 20px 0 0; max-width: 520px; }
+      .panel {
+        background: var(--surface);
+        border-radius: 36px 36px 0 0;
+        padding: 32px 24px 64px;
+        min-height: 60vh;
+      }
+      .download {
+        display: flex; align-items: center; gap: 16px;
+        background: var(--dark); color: #fff; text-decoration: none;
+        border-radius: 28px; padding: 18px 22px;
+      }
+      .download:hover { opacity: 0.92; }
+      .download .icon {
+        width: 52px; height: 52px; border-radius: 50%; flex: none;
+        background: var(--accent); display: grid; place-items: center;
+      }
+      .download strong { display: block; font-size: 19px; }
+      .download small { color: #bdbbb6; font-size: 14px; }
+      .badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
+      .badge { background: var(--tile); color: var(--ink-soft); border-radius: 999px; padding: 6px 14px; font-size: 14px; }
+      .badge.accent { background: var(--accent); color: #fff; font-weight: 600; }
+      h2 { font-size: 24px; letter-spacing: -0.5px; margin: 40px 0 16px; }
+      ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; display: grid; gap: 12px; }
+      ol.steps li {
+        counter-increment: s; display: flex; gap: 14px; align-items: flex-start;
+        border: 1.5px solid var(--border); border-radius: 24px; padding: 16px 18px;
+        font-size: 16px; line-height: 1.45; color: var(--ink-soft);
+      }
+      ol.steps li::before {
+        content: counter(s); flex: none; width: 32px; height: 32px; border-radius: 50%;
+        background: var(--tile); color: var(--ink); font-weight: 700;
+        display: grid; place-items: center;
+      }
+      ol.steps b { color: var(--ink); }
+      .shots { display: flex; gap: 12px; overflow-x: auto; margin: 0 -24px; padding: 4px 24px 12px; scroll-snap-type: x mandatory; }
+      .shots img { width: 200px; flex: none; border-radius: 24px; border: 1.5px solid var(--border); scroll-snap-align: start; }
+      .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+      .feature { background: var(--tile); border-radius: 24px; padding: 20px; }
+      .feature h3 { margin: 0 0 6px; font-size: 17px; }
+      .feature p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.45; }
+      .note { background: var(--accent-soft); border-radius: 20px; padding: 16px 18px; font-size: 15px; line-height: 1.5; color: var(--ink-soft); }
+      footer { margin-top: 40px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+      a { color: var(--accent); }
+      @media (min-width: 640px) { h1 { font-size: 56px; } header { padding-top: 80px; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Clean Reddit<span>for curious minds</span></h1>
+        <p class="lede">A calm, family-friendly Reddit reader. No NSFW content, quick quizzes so you remember what you read, and notes on any post.</p>
+      </header>
+
+      <main class="panel">
+        <a class="download" href="clean-reddit.apk" download>
+          <span class="icon" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12"/><path d="m6 11 6 6 6-6"/><path d="M5 20h14"/></svg>
+          </span>
+          <span>
+            <strong>Download for Android</strong>
+            <small>Version {{VERSION}} · {{SIZE}} MB · updated {{DATE}}</small>
+          </span>
+        </a>
+        <div class="badges">
+          <span class="badge accent">Free</span>
+          <span class="badge">No account needed</span>
+          <span class="badge">No ads or tracking</span>
+          <span class="badge">Android 7+</span>
+        </div>
+
+        <h2>How to install</h2>
+        <ol class="steps">
+          <li><span>Open this page <b>on your Android phone</b> and tap <b>Download for Android</b>.</span></li>
+          <li><span>Open the downloaded file. If Android asks, allow your browser to <b>install unknown apps</b>.</span></li>
+          <li><span>Tap <b>Install</b>. If Play Protect warns that the app is unknown, choose <b>Install anyway</b>. That's normal for apps that don't come from the Play Store.</span></li>
+        </ol>
+        <p class="note" style="margin-top:12px">To update, download and install again. Your notes and progress are kept.</p>
+
+        <h2>Inside the app</h2>
+        <div class="shots">
+          <img src="screenshots/1-feed.png" alt="Feed with today's learning stats" loading="lazy" />
+          <img src="screenshots/3-post.png" alt="Post with Quiz me and Add note buttons" loading="lazy" />
+          <img src="screenshots/5-quiz-answered.png" alt="Fill-in-the-blank quiz question" loading="lazy" />
+          <img src="screenshots/7-learn.png" alt="Learning stats and spaced review" loading="lazy" />
+          <img src="screenshots/8-notes.png" alt="Notes with to-do items" loading="lazy" />
+          <img src="screenshots/9-settings.png" alt="Settings with content filter options" loading="lazy" />
+        </div>
+
+        <h2>What makes it different</h2>
+        <div class="features">
+          <div class="feature"><h3>Clean by design</h3><p>NSFW posts and adult communities are always removed. A strict filter also hides suggestive posts.</p></div>
+          <div class="feature"><h3>Learn while you scroll</h3><p>Quick quizzes on what you just read, plus spaced review so it sticks.</p></div>
+          <div class="feature"><h3>Notes and to-dos</h3><p>Save a takeaway or something to act on later, linked back to the post.</p></div>
+          <div class="feature"><h3>Private</h3><p>Everything stays on your phone. No accounts, no analytics.</p></div>
+        </div>
+
+        <footer>
+          iPhone: Apple doesn't allow installing apps from a website. See the <a href="https://github.com/vladk-III/clean-reddit#iphone">README</a> for options.<br />
+          Open source on <a href="https://github.com/vladk-III/clean-reddit">GitHub</a> · build {{COMMIT}}
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

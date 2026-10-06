@@ -17,24 +17,10 @@ A calm, family-friendly Reddit reader that helps you **remember what you read**.
 
 ## Download
 
-### Web (any phone or computer)
-Open **https://vladk-iii.github.io/clean-reddit/**. On a phone, use *Add to Home Screen* to get an app-like icon.
+### Android (easiest)
+Open **https://vladk-iii.github.io/clean-reddit/** on your phone and tap **Download for Android**. The page has the install steps. A fresh APK is built and published there on every push to `main`.
 
-The site is redeployed every time `main` changes. **One-time setup:** in the repo, go to *Settings → Pages → Build and deployment → Source* and choose **GitHub Actions**.
-
-#### Website setup: the Reddit relay
-Reddit blocks websites from loading its posts directly. (The phone app isn't affected.) The website therefore reads Reddit through a tiny relay, [`proxy/reddit-proxy.js`](proxy/reddit-proxy.js), that you host for free on Cloudflare. It takes about 5 minutes:
-
-1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com).
-2. Go to **Workers & Pages → Create application** and import this GitHub repo. Name the worker `clean-reddit` to match [`wrangler.jsonc`](wrangler.jsonc). Cloudflare redeploys the relay on every push to `main`.
-3. *(Optional)* If you already have a Reddit API client ID, add it under the worker's **Settings → Variables and Secrets** as a *Secret* named `REDDIT_CLIENT_ID`. Reddit no longer lets people create new API apps at reddit.com/prefs/apps, so most people will skip this step. Without it, the relay reads Reddit's public pages anonymously.
-4. The website is built to use `https://clean-reddit.vk31999.workers.dev`. If your worker has a different URL, add a GitHub repo variable named `REDDIT_PROXY_URL` (**Settings → Secrets and variables → Actions → Variables**) and re-run **Actions → Deploy web app to GitHub Pages**.
-
-The relay only accepts requests from `https://vladk-iii.github.io`. To change that, edit `ALLOWED_ORIGIN` in `wrangler.jsonc`.
-
-To try a different relay without rebuilding, paste its URL into the website's **Settings → Reddit connection → Relay URL**.
-
-### Android
+### Android (from Releases)
 1. Open the [Releases](../../releases) page and download the latest `clean-reddit-x.y.z.apk`.
 2. Open the file on your phone. Allow "install unknown apps" for your browser or file manager if Android asks.
 
@@ -45,7 +31,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-You can also run the **Android APK** workflow by hand from the Actions tab. That build's APK is then under the run's *Artifacts*.
+To rebuild the download page without pushing, go to **Actions → Deploy download page to GitHub Pages → Run workflow**.
 
 ### iPhone
 Apple doesn't allow installing apps from GitHub. You have two options:

@@ -1,0 +1,44 @@
+name: Build APK
+
+# Reusable: builds the Android APK and uploads it as the "apk" artifact
+# (a single file, clean-reddit.apk). Used by pages.yml and android-release.yml.
+on:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+      - run: npm test -- --ci
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install
+
+      # 64- and 32-bit ARM cover practically every Android phone and keep the
+      # APK well under GitHub Pages' 100 MB file limit.
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+
+      - run: mv android/app/build/outputs/apk/release/app-release.apk clean-reddit.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: clean-reddit.apk
+          retention-days: 7
