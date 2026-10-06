@@ -133,5 +133,6 @@ export function entryToComment(e: AtomEntry): Comment {
     score: 0,
     depth: 0,
     replies: [],
+    permalink: e.link.replace(/^https?:\/\/[^/]+/, '') || undefined,
   };
 }

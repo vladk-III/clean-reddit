@@ -33,6 +33,8 @@ export type Comment = {
   score: number;
   depth: number;
   replies: Comment[];
+  /** Path of the comment's own page; feeds use it to load replies on demand. */
+  permalink?: string;
 };
 
 export type Listing = { posts: Post[]; after: string | null; hiddenCount: number };
@@ -394,4 +396,21 @@ export async function checkSubreddit(name: string, auth?: RedditAuth): Promise<{
     }
     return { ok: false, reason: e instanceof Error ? e.message : 'Could not reach Reddit.' };
   }
+}
+
+/**
+ * Feeds list comments without saying which comment each reply belongs to, so
+ * replies are loaded on demand from the comment's own feed (that comment and
+ * everything under it). Returns them in thread order.
+ */
+export async function fetchReplies(
+  comment: Comment,
+  opts: { strict?: boolean; extraBlockedWords?: string[] } = {},
+): Promise<Comment[]> {
+  if (!comment.permalink) return [];
+  const entries = await requestFeed(comment.permalink.replace(/\/?$/, '/'), { limit: '60' });
+  const replies = entries
+    .filter((e) => e.id.startsWith('t1_') && e.id !== `t1_${comment.id}`)
+    .map((e) => ({ ...entryToComment(e), depth: comment.depth + 1 }));
+  return filterComments(replies, { strict: opts.strict ?? true, extraWords: opts.extraBlockedWords ?? [] });
 }

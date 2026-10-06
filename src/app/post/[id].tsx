@@ -7,11 +7,25 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, IconButton, Panel } from '@/components/ui';
 import { compact, plainText, timeAgo } from '@/lib/format';
-import { Comment, fetchPost, Post } from '@/lib/reddit';
+import { Comment, fetchPost, fetchReplies, Post } from '@/lib/reddit';
 import { commentsCache, feedFilterOptions, postCache, useStore } from '@/lib/store';
 import { colors, radius, spacing, type } from '@/lib/theme';
 
-function CommentItem({ comment }: { comment: Comment }) {
+type ReplyState = Comment[] | 'loading' | string; // string = error message
+
+function CommentItem({
+  comment,
+  replyState,
+  onShowReplies,
+}: {
+  comment: Comment;
+  replyState?: ReplyState;
+  onShowReplies?: (c: Comment) => void;
+}) {
+  // Full Reddit data nests replies already; feeds load them on demand.
+  const loaded = Array.isArray(replyState) ? replyState : null;
+  const replies = comment.replies.length ? comment.replies : (loaded ?? []);
+  const canLoad = !comment.replies.length && comment.permalink && onShowReplies && comment.depth === 0;
   return (
     <View style={[styles.comment, comment.depth > 0 && styles.reply]}>
       <View style={styles.commentMeta}>
@@ -19,9 +33,24 @@ function CommentItem({ comment }: { comment: Comment }) {
         {comment.score ? <Text style={type.caption}>· {compact(comment.score)} pts</Text> : null}
       </View>
       <Text style={styles.commentBody}>{plainText(comment.body)}</Text>
-      {comment.replies.slice(0, 2).map((r) => (
+      {replies.map((r) => (
         <CommentItem key={r.id} comment={r} />
       ))}
+      {canLoad && replyState === undefined ? (
+        <Pressable onPress={() => onShowReplies(comment)} hitSlop={8} style={styles.repliesButton}>
+          <Feather name="corner-down-right" size={14} color={colors.accent} />
+          <Text style={styles.repliesText}>Show replies</Text>
+        </Pressable>
+      ) : null}
+      {replyState === 'loading' ? (
+        <ActivityIndicator color={colors.ink} style={{ alignSelf: 'flex-start', marginTop: 6 }} />
+      ) : null}
+      {loaded && loaded.length === 0 ? <Text style={[type.caption, { marginTop: 6 }]}>No replies yet.</Text> : null}
+      {typeof replyState === 'string' && replyState !== 'loading' ? (
+        <Pressable onPress={() => onShowReplies?.(comment)} hitSlop={8}>
+          <Text style={[type.caption, { marginTop: 6, color: colors.danger }]}>{replyState} Tap to retry.</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -35,6 +64,7 @@ export default function PostScreen() {
 
   const [post, setPost] = useState<Post | null>(postCache.get(id) ?? null);
   const [comments, setComments] = useState<Comment[]>(commentsCache.get(id) ?? []);
+  const [replyStates, setReplyStates] = useState<Record<string, ReplyState>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const markedRead = useRef(false);
@@ -91,6 +121,18 @@ export default function PostScreen() {
       router.replace({ pathname: '/note', params: { postId: id, afterReading: '1' } });
     });
   }, [navigation, settings.promptNoteAfterReading, note, post, router, id]);
+
+  const showReplies = (c: Comment) => {
+    setReplyStates((r) => ({ ...r, [c.id]: 'loading' }));
+    fetchReplies(c, { strict: settings.strictFilter, extraBlockedWords: settings.blockedWords })
+      .then((replies) => setReplyStates((r) => ({ ...r, [c.id]: replies })))
+      .catch((e) => setReplyStates((r) => ({ ...r, [c.id]: e instanceof Error ? e.message : 'Couldn’t load replies.' })));
+  };
+
+  // Feeds can list replies as if they were top-level comments; once a reply is
+  // shown under its parent, don't show it again on its own.
+  const nestedIds = new Set(Object.values(replyStates).flatMap((r) => (Array.isArray(r) ? r.map((c) => c.id) : [])));
+  const topLevel = comments.filter((c) => !nestedIds.has(c.id));
 
   const body = post ? plainText(post.selftext) : '';
   const showImage = post?.image && !settings.hideImages;
@@ -191,8 +233,8 @@ export default function PostScreen() {
           <Text style={[type.heading, { marginTop: spacing.xl, marginBottom: spacing.md }]}>Top comments</Text>
           {loading ? <ActivityIndicator color={colors.ink} /> : null}
           {!loading && comments.length === 0 && !error ? <Text style={type.caption}>No comments to show.</Text> : null}
-          {comments.slice(0, 25).map((c) => (
-            <CommentItem key={c.id} comment={c} />
+          {topLevel.slice(0, 25).map((c) => (
+            <CommentItem key={c.id} comment={c} replyState={replyStates[c.id]} onShowReplies={showReplies} />
           ))}
         </Panel>
       </ScrollView>
@@ -258,5 +300,7 @@ const styles = StyleSheet.create({
   },
   commentMeta: { flexDirection: 'row', gap: 6, alignItems: 'center' },
   commentAuthor: { fontSize: 14, fontWeight: '600', color: colors.ink },
+  repliesButton: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, alignSelf: 'flex-start' },
+  repliesText: { color: colors.accent, fontWeight: '600', fontSize: 14 },
   commentBody: { fontSize: 15, color: colors.inkSoft, lineHeight: 22 },
 });

@@ -72,7 +72,7 @@ describe('Reddit Atom feeds', () => {
 });
 
 describe('loading posts through feeds', () => {
-  const { fetchFeed, fetchPost, resetFeedState, RateLimitError } = require('@/lib/reddit') as typeof import('@/lib/reddit');
+  const { fetchFeed, fetchPost, fetchReplies, resetFeedState, RateLimitError } = require('@/lib/reddit') as typeof import('@/lib/reddit');
   const response = (body: string, status = 200, headers: Record<string, string> = {}) =>
     ({ ok: status < 400, status, text: async () => body, headers: { get: (k: string) => headers[k.toLowerCase()] ?? null } }) as unknown as Response;
   const respond = (body: string, status = 200, headers: Record<string, string> = {}) =>
@@ -135,5 +135,17 @@ describe('loading posts through feeds', () => {
     expect(global.fetch).toHaveBeenCalledTimes(9);
     await expect(fetchFeed({ subreddits: ['onemore'], sort: 'hot' })).rejects.toThrow('Reddit needs a short break');
     expect(global.fetch).toHaveBeenCalledTimes(9);
+  });
+
+  it('loads replies to a comment from its own feed', async () => {
+    const reply = (id: string, text: string) =>
+      comment.replace(/t1_c1/, `t1_${id}`).replace(/c1\//, `${id}/`).replace('Rayleigh scattering &amp;gt; Mie scattering here.', text);
+    global.fetch = respond(feed(selfPost + comment + reply('r1', 'Great point') + reply('r2', 'send nudes')));
+    const [parent] = (await fetchPost('abc123', { permalink: '/r/askscience/comments/abc123/slug/' })).comments;
+    expect(parent.permalink).toBe('/r/askscience/comments/abc123/slug/c1/');
+
+    const replies = await fetchReplies(parent);
+    expect((global.fetch as jest.Mock).mock.calls.at(-1)[0]).toBe('https://www.reddit.com/r/askscience/comments/abc123/slug/c1/.rss?limit=60');
+    expect(replies.map((r) => [r.id, r.depth])).toEqual([['r1', 1]]); // itself excluded, blocked reply filtered
   });
 });
