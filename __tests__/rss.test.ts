@@ -72,10 +72,13 @@ describe('Reddit Atom feeds', () => {
 });
 
 describe('loading posts through feeds', () => {
-  const { fetchFeed, fetchPost } = require('@/lib/reddit') as typeof import('@/lib/reddit');
-  const respond = (body: string, status = 200) =>
-    jest.fn().mockResolvedValue({ ok: status < 400, status, text: async () => body } as unknown as Response);
+  const { fetchFeed, fetchPost, resetFeedState, RateLimitError } = require('@/lib/reddit') as typeof import('@/lib/reddit');
+  const response = (body: string, status = 200, headers: Record<string, string> = {}) =>
+    ({ ok: status < 400, status, text: async () => body, headers: { get: (k: string) => headers[k.toLowerCase()] ?? null } }) as unknown as Response;
+  const respond = (body: string, status = 200, headers: Record<string, string> = {}) =>
+    jest.fn().mockResolvedValue(response(body, status, headers));
 
+  beforeEach(() => resetFeedState());
   afterEach(() => jest.restoreAllMocks());
 
   it('loads and filters a subreddit feed', async () => {
@@ -100,5 +103,37 @@ describe('loading posts through feeds', () => {
     expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe('https://www.reddit.com/r/askscience/comments/abc123/slug/.rss?limit=60');
     expect(res.post?.title).toContain('sky blue');
     expect(res.comments.map((c) => c.author)).toEqual(['acoustics_nerd']);
+  });
+
+  it('reuses a recently loaded feed, and refresh asks Reddit again', async () => {
+    global.fetch = respond(feed(selfPost));
+    await fetchFeed({ subreddits: ['askscience'], sort: 'hot' });
+    await fetchFeed({ subreddits: ['askscience'], sort: 'hot' });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    await fetchFeed({ subreddits: ['askscience'], sort: 'hot', fresh: true });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps showing saved posts when Reddit rate limits', async () => {
+    global.fetch = respond(feed(selfPost));
+    await fetchFeed({ subreddits: ['askscience'], sort: 'hot' });
+
+    global.fetch = respond('Too Many Requests', 429, { 'retry-after': '42' });
+    // Refresh: tell the reader, keep their posts on screen.
+    await expect(fetchFeed({ subreddits: ['askscience'], sort: 'hot', fresh: true })).rejects.toThrow('Try again in 42s');
+    // Normal loads during the cooldown use the saved copy without asking Reddit.
+    const res = await fetchFeed({ subreddits: ['askscience'], sort: 'hot' });
+    expect(res.posts.map((p) => p.id)).toEqual(['abc123']);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    // Something never loaded before can't be shown yet.
+    await expect(fetchFeed({ subreddits: ['space'], sort: 'hot' })).rejects.toBeInstanceOf(RateLimitError);
+  });
+
+  it("stays under Reddit's per-minute budget", async () => {
+    global.fetch = respond(feed(selfPost));
+    for (let i = 0; i < 9; i++) await fetchFeed({ subreddits: [`sub${i}x`], sort: 'hot' });
+    expect(global.fetch).toHaveBeenCalledTimes(9);
+    await expect(fetchFeed({ subreddits: ['onemore'], sort: 'hot' })).rejects.toThrow('Reddit needs a short break');
+    expect(global.fetch).toHaveBeenCalledTimes(9);
   });
 });

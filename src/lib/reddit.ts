@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 import { filterComments, filterPosts, isSubredditAllowed } from './filter';
-import { entryToComment, entryToPost, isAtom, parseAtom } from './rss';
+import { AtomEntry, entryToComment, entryToPost, isAtom, parseAtom } from './rss';
 
 export type Post = {
   id: string;
@@ -163,20 +163,97 @@ function readsFeeds(auth?: RedditAuth) {
   return Platform.OS !== 'web' && !auth?.clientId;
 }
 
-async function requestFeed(path: string, params: Record<string, string>) {
-  const query = new URLSearchParams(params).toString();
-  let res: Response;
-  try {
-    res = await fetch(`${PUBLIC_BASE}${path}.rss${query ? `?${query}` : ''}`, {
-      headers: { 'User-Agent': USER_AGENT, Accept: 'application/atom+xml' },
-    });
-  } catch {
-    throw new RedditError('Could not reach Reddit. Check your internet connection.');
+// ---------- Feed requests: cache + pacing ----------
+// Reddit allows logged-out apps roughly 10 requests a minute. Reuse recent
+// responses, pace requests under that budget, and when Reddit still says
+// "slow down", keep showing what we already have.
+
+const FRESH_MS = 5 * 60_000; // reuse a feed for 5 minutes
+const STALE_MS = 24 * 60 * 60_000; // fall back to older copies while rate limited
+const BUDGET = 9; // requests per rolling minute
+const MAX_WAIT_MS = 8_000; // wait this long for budget before giving up
+
+export class RateLimitError extends RedditError {
+  constructor(readonly retryInSec: number) {
+    super(`Reddit needs a short break. Try again in ${retryInSec}s.`, 429);
   }
-  checkStatus(res);
-  const text = await res.text();
-  if (!isAtom(text)) throw new RedditError('Reddit sent back a web page instead of a feed. Try again in a minute.');
-  return parseAtom(text);
+}
+
+const feedCache = new Map<string, { at: number; entries: AtomEntry[] }>();
+const inflight = new Map<string, Promise<AtomEntry[]>>();
+let recentRequests: number[] = [];
+let cooldownUntil = 0;
+
+/** Test helper. */
+export function resetFeedState() {
+  feedCache.clear();
+  inflight.clear();
+  recentRequests = [];
+  cooldownUntil = 0;
+}
+
+function budgetWaitMs(now: number) {
+  recentRequests = recentRequests.filter((t) => now - t < 60_000);
+  return recentRequests.length < BUDGET ? 0 : recentRequests[0] + 60_000 - now;
+}
+
+function retryAfterSec(res: Response) {
+  const header = Number(res.headers?.get?.('retry-after') ?? res.headers?.get?.('x-ratelimit-reset'));
+  return Number.isFinite(header) && header > 0 ? Math.min(Math.ceil(header), 600) : 60;
+}
+
+async function requestFeed(path: string, params: Record<string, string>, opts: { fresh?: boolean } = {}): Promise<AtomEntry[]> {
+  const query = new URLSearchParams(params).toString();
+  const url = `${PUBLIC_BASE}${path}.rss${query ? `?${query}` : ''}`;
+  const now = Date.now();
+  const cached = feedCache.get(url);
+  const usable = cached && now - cached.at < STALE_MS ? cached.entries : null;
+
+  if (cached && !opts.fresh && now - cached.at < FRESH_MS) return cached.entries;
+  if (now < cooldownUntil) {
+    // Quietly show the saved copy, unless the reader explicitly asked for new posts.
+    if (usable && !opts.fresh) return usable;
+    throw new RateLimitError(Math.ceil((cooldownUntil - now) / 1000));
+  }
+  const pending = inflight.get(url);
+  if (pending) return pending;
+
+  const run = (async () => {
+    const wait = budgetWaitMs(Date.now());
+    if (wait > 0) {
+      if (usable && !opts.fresh) return usable;
+      if (wait > MAX_WAIT_MS) throw new RateLimitError(Math.ceil(wait / 1000));
+      await new Promise((r) => setTimeout(r, wait));
+    }
+    recentRequests.push(Date.now());
+
+    let res: Response;
+    try {
+      res = await fetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/atom+xml' } });
+    } catch {
+      if (usable) return usable;
+      throw new RedditError('Could not reach Reddit. Check your internet connection.');
+    }
+    if (res.status === 429) {
+      const sec = retryAfterSec(res);
+      cooldownUntil = Date.now() + sec * 1000;
+      if (usable && !opts.fresh) return usable;
+      throw new RateLimitError(sec);
+    }
+    checkStatus(res);
+    const text = await res.text();
+    if (!isAtom(text)) throw new RedditError('Reddit sent back a web page instead of a feed. Try again in a minute.');
+    const entries = parseAtom(text);
+    feedCache.set(url, { at: Date.now(), entries });
+    return entries;
+  })();
+
+  inflight.set(url, run);
+  try {
+    return await run;
+  } finally {
+    inflight.delete(url);
+  }
 }
 
 // ---------- Normalisation ----------
@@ -244,6 +321,8 @@ export type FeedOptions = {
   extraBlockedWords?: string[];
   strict?: boolean;
   auth?: RedditAuth;
+  /** Skip the short-term cache (pull to refresh). */
+  fresh?: boolean;
 };
 
 export async function fetchFeed(opts: FeedOptions): Promise<Listing> {
@@ -254,7 +333,7 @@ export async function fetchFeed(opts: FeedOptions): Promise<Listing> {
   if (opts.sort === 'top') params.t = 'week';
   const filterOpts = { strict: opts.strict ?? true, extraWords: opts.extraBlockedWords ?? [] };
   if (readsFeeds(opts.auth)) {
-    const entries = await requestFeed(`/r/${subs.join('+')}/${opts.sort}/`, params);
+    const entries = await requestFeed(`/r/${subs.join('+')}/${opts.sort}/`, params, { fresh: opts.fresh });
     const raw = entries.filter((e) => e.id.startsWith('t3_')).map(entryToPost);
     const posts = filterPosts(raw, filterOpts);
     const last = entries[entries.length - 1];

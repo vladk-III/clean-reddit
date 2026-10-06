@@ -243,7 +243,9 @@ export function useStore() {
   return ctx;
 }
 
-export function feedFilterOptions(settings: Settings) {
+export function feedFilterOptions(
+  settings: Pick<Settings, 'strictFilter' | 'blockedWords' | 'redditClientId' | 'redditProxy'>,
+) {
   return {
     strict: settings.strictFilter,
     extraBlockedWords: settings.blockedWords,

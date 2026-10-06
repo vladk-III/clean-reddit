@@ -39,7 +39,12 @@ export default function FeedScreen() {
   const requestId = useRef(0);
 
   const subs = useMemo(() => (selected ? [selected] : settings.subreddits), [selected, settings.subreddits]);
-  const filterOpts = useMemo(() => feedFilterOptions(settings), [settings]);
+  // Only settings that change which posts are fetched or shown; editing your name etc. shouldn't refetch.
+  const { strictFilter, blockedWords, redditClientId, redditProxy } = settings;
+  const filterOpts = useMemo(
+    () => feedFilterOptions({ strictFilter, blockedWords, redditClientId, redditProxy }),
+    [strictFilter, blockedWords, redditClientId, redditProxy],
+  );
   const feedKey = useMemo(() => JSON.stringify({ subs, sort, filterOpts }), [subs, sort, filterOpts]);
   const current = loadedKey === feedKey;
   const loading = !current || busy;
@@ -62,10 +67,10 @@ export default function FeedScreen() {
     setRefreshing(false);
   };
 
-  const fetchPage = (mode: 'reset' | 'more') => {
+  const fetchPage = (mode: 'reset' | 'more', fresh = false) => {
     const id = ++requestId.current;
     const key = feedKey;
-    fetchFeed({ subreddits: subs, sort, after: mode === 'more' ? after : null, ...filterOpts })
+    fetchFeed({ subreddits: subs, sort, after: mode === 'more' ? after : null, fresh, ...filterOpts })
       .then((res) => id === requestId.current && applyPage(res, mode))
       .catch((e) => id === requestId.current && setError(e instanceof Error ? e.message : 'Something went wrong.'))
       .finally(() => id === requestId.current && settle(key));
@@ -77,7 +82,13 @@ export default function FeedScreen() {
     const id = ++requestId.current;
     fetchFeed({ subreddits: subs, sort, after: null, ...filterOpts })
       .then((res) => id === requestId.current && applyPage(res, 'reset'))
-      .catch((e) => id === requestId.current && setError(e instanceof Error ? e.message : 'Something went wrong.'))
+      .catch((e) => {
+        if (id !== requestId.current) return;
+        // Don't leave the previous feed's posts under the new selection.
+        setPosts([]);
+        setAfter(null);
+        setError(e instanceof Error ? e.message : 'Something went wrong.');
+      })
       .finally(() => id === requestId.current && settle(feedKey));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.ready, feedKey]);
@@ -89,7 +100,7 @@ export default function FeedScreen() {
   };
   const refresh = () => {
     setRefreshing(true);
-    fetchPage('reset');
+    fetchPage('reset', true);
   };
   const retry = () => {
     setBusy(true);

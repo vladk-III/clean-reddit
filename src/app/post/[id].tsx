@@ -61,7 +61,12 @@ export default function PostScreen() {
         setPost(res.post);
         setComments(res.comments);
       })
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : 'Could not load the post.'))
+      .catch((e) => {
+        if (cancelled) return;
+        const msg = e instanceof Error ? e.message : 'Something went wrong.';
+        // The post itself is usually already here from the feed; only the comments are missing.
+        setError(postCache.has(id) ? `Couldn’t load comments. ${msg}` : msg);
+      })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
